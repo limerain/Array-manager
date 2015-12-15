@@ -689,7 +689,7 @@ static int bgrnd_job(struct dm_target *ti){
 							do_div(cur_sector, 8);//scaling to block number
 
 							rcu_read_lock();{
-							mutex_lock(&vc->lock);
+							//mutex_lock(&vc->lock);
 							for(i=0; i<size; i++){
 								struct flag_nodes* fn;
 								struct reverse_nodes* rn;
@@ -707,12 +707,14 @@ static int bgrnd_job(struct dm_target *ti){
 								rn = &(rcu_dereference(tp_reverse_table)[gs->tp_io_sector+i]);//&tp_reverse_table[gs->tp_io_sector+i];
 								fn = rcu_dereference(gs->table)[rn->index];//gs->table[rn->index];
 								//rcu_dereference(gs->table)[tp_reverse_table[gs->tp_io_sector+i].index]->msector = rcu_dereference(vc)->vm[gs->tp].physical_start;
-								fn->msector = rcu_dereference(vc)->vm[gs->tp].physical_start;
+								rcu_dereference(fn)->msector = rcu_dereference(vc)->vm[gs->tp].physical_start;
 								//if(gs->tp_io_sector+i + 8 > vc->vm[gs->tp].end_sector)printk("over range by tp_io sector, tp_io_sector %llu, total %llu\n", gs->tp_io_sector+i, gs->tp_io_sector+i+8);
 
+								mutex_lock(&vc->lock);
 								vc->ws[gs->tp] += 8;
+								mutex_unlock(&vc->lock);
 							}
-							mutex_unlock(&vc->lock);
+							//mutex_unlock(&vc->lock);
 						}rcu_read_unlock();
 
 						io_req.bi_rw = WRITE; io_req.mem.type = DM_IO_VMA;
@@ -812,7 +814,7 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc,
 		sector_t target_sector,	unsigned int wp,
 		sector_t *write_sector,	struct block_device **bdev,
 		unsigned long bi_rw, unsigned int size){
-	struct flag_set *fs = vc->fs;
+	struct flag_set *fs = NULL;// = vc->fs;
 	unsigned long long index = target_sector;
 	unsigned int remainder = 0;
 	unsigned long long ws;
@@ -822,9 +824,38 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc,
 	mutex_lock(&vc->lock);
 	if(fs->table[index]->msector == -1){
 		sector_t return_sector;
+		unsigned long long n_wp = -1;
+		struct flag_nodes *fn = NULL;
 		//printk("target_sector %llu, index %llu, mapped sector %llu, ws %llu, wp %u\n", (unsigned long long)target_sector, (unsigned long long)index*nnode_per_page, (unsigned long long)return_sector, (unsigned long long)vc->ws[wp], fs->table[index][sect].wp);
 
-		return_sector = vc->vm[wp].physical_start + vc->ws[wp];
+		rcu_read_lock();
+		
+		printk("initial\n");
+		fs = rcu_dereference(vc->fs);
+		n_wp = rcu_dereference(vc)->ws[wp];
+		rcu_dereference(vc)->ws[wp] += 8;
+		fn = rcu_dereference(fs->table[index]);
+
+		printk("setting fn\n");
+		return_sector = rcu_dereference(vc)->vm[wp].physical_start + n_wp;
+		fn->msector = return_sector;
+		fn->wp = wp;
+		
+		printk("setting reverse_table\n");
+		ws = n_wp;
+		do_div(ws, 8);
+		//fs->reverse_table[wp][ws].lsector = target_sector;////????
+		fs->reverse_table[wp][ws].index = index;
+		fs->reverse_table[wp][ws].dirty = 0;
+
+		printk("setting return value\n");
+		*bdev = rcu_dereference(vc)->vm[wp].dev->bdev;
+		*write_sector = return_sector + remainder;
+
+		rcu_read_unlock();
+		printk("read unlock\n");
+
+		/*return_sector = vc->vm[wp].physical_start + vc->ws[wp];
 		fs->table[index]->msector = return_sector;
 		fs->table[index]->wp = wp;
 		
@@ -834,28 +865,58 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc,
 		fs->reverse_table[wp][ws].index = index;
 		fs->reverse_table[wp][ws].dirty = 0;
 
-		*bdev = vc->vm[wp].dev->bdev;
+		rcu_read_lock();
+		*bdev = rcu_dereference(vc)->vm[wp].dev->bdev;
+		rcu_read_unlock();
 		*write_sector = return_sector + remainder;
-		vc->ws[wp] += 8;
+		vc->ws[wp] += 8;*/
 	}
 	else{
 		if(bi_rw == WRITE){//write
 			//and... new alloc mapped sector
+			struct flag_nodes *fn = NULL;
+			sector_t n_msector = -1;
+			unsigned long long n_wp = -1;
 			
-			ws = fs->table[index]->msector - vc->vm[fs->table[index]->wp].physical_start;
-			do_div(ws, 8);
-			fs->reverse_table[wp][ws].dirty = 1;
-			vc->d_num[wp]++;
-
 			rcu_read_lock();
-			rcu_dereference(fs->table[index])->msector = vc->vm[wp].physical_start + rcu_dereference(vc->ws)[wp];
-			rcu_read_unlock();
-			fs->table[index]->wp = wp;
+			n_wp = rcu_dereference(vc)->ws[wp];
+			rcu_dereference(vc)->ws[wp] += 8;
+
+			fs = rcu_dereference(vc->fs);
+			fn = rcu_dereference(fs->table[index]);
+			n_msector = rcu_dereference(vc)->vm[wp].physical_start + n_wp;
+
+			ws = fn->msector;
+			ws-= rcu_dereference(vc)->vm[fn->wp].physical_start;
+
+			do_div(ws, 8);
+			rcu_dereference(fs)->reverse_table[wp][ws].dirty = 1;
+			rcu_dereference(vc)->d_num[wp]++;
+
+			fn->msector = n_msector;
+			fn->wp = wp;
 			//printk("target_sector %llu, index %llu, mapped sector %llu, ws %llu, wp %u, flag %u\n", (unsigned long long)target_sector, (unsigned long long)index*nnode_per_page, (unsigned long long)fs->table[index][sect].msector, (unsigned long long)vc->ws[wp], fs->table[index][sect].wp, fs->table[index][sect].flag);
 
-			*bdev = vc->vm[fs->table[index]->wp].dev->bdev;
-			*write_sector = fs->table[index]->msector + remainder;
-			vc->ws[wp] += 8;
+			*bdev = rcu_dereference(rcu_dereference(vc)->vm[wp].dev)->bdev;
+			*write_sector = n_msector + remainder;
+			rcu_read_unlock();
+			
+			/*ws = rcu_dereference(rcu_dereference(fs)->table[index])->msector;
+			ws-= rcu_dereference(vc)->vm[rcu_dereference(rcu_dereference(fs)->table[index])->wp].physical_start;
+			do_div(ws, 8);
+			rcu_dereference(fs)->reverse_table[wp][ws].dirty = 1;
+			rcu_dereference(vc)->d_num[wp]++;
+
+			rcu_dereference(rcu_dereference(fs)->table[index])->msector = rcu_dereference(vc)->vm[wp].physical_start + rcu_dereference(vc)->ws[wp];
+			//fs->table[index]->msector = rcu_dereference(vc)->vm[wp].physical_start + rcu_dereference(vc)->ws[wp];
+			//rcu_read_unlock();
+			rcu_dereference(rcu_dereference(fs)->table[index])->wp = wp;
+			//printk("target_sector %llu, index %llu, mapped sector %llu, ws %llu, wp %u, flag %u\n", (unsigned long long)target_sector, (unsigned long long)index*nnode_per_page, (unsigned long long)fs->table[index][sect].msector, (unsigned long long)vc->ws[wp], fs->table[index][sect].wp, fs->table[index][sect].flag);
+
+			*bdev = rcu_dereference(rcu_dereference(vc)->vm[rcu_dereference(rcu_dereference(fs)->table[index])->wp].dev)->bdev;
+			*write_sector = rcu_dereference(rcu_dereference(fs)->table[index])->msector + remainder;
+			rcu_dereference(vc)->ws[wp] += 8;
+			rcu_read_unlock();*/
 		}
 		else{//read
 			*bdev = vc->vm[fs->table[index]->wp].dev->bdev;
@@ -885,7 +946,7 @@ static inline void vm_lfs_map_bio(struct dm_target *ti, struct bio *bio){
 			if(!vc->mig_flag) vc->mig_flag = 1;
 		}*/
 		///need to implement for ws 0 is valid by cold valid data
-		if(bio->bi_iter.bi_sector + bio_sectors(bio) > vc->vm[vc->wp].end_sector){
+		while(bio->bi_iter.bi_sector + bio_sectors(bio) > vc->vm[vc->wp].end_sector){
 			unsigned long long ws;
 			unsigned int next_point;
 			unsigned int gp_main_dev;
@@ -894,11 +955,10 @@ static inline void vm_lfs_map_bio(struct dm_target *ti, struct bio *bio){
 			unsigned int i;
 			printk("ws %llu, start %llu, bi_sector %llu, end_sector %llu, sectors %u\n", (unsigned long long)vc->ws[vc->wp], (unsigned long long)vc->vm[vc->wp].physical_start, (unsigned long long)bio->bi_iter.bi_sector, (unsigned long long)vc->vm[vc->wp].end_sector, bio_sectors(bio));
 
-			/*if(vc->wp == 0)
-				//next_point = 1;////read collision
-				next_point = 2;////write collision
-			else
-				next_point = (vc->wp+1) %vc->vms;*/
+			/*if(bio->bi_rw == 17){
+				printk("rw 17... T.T ws %llu, start %llu, bi_sector %llu, end_sector %llu, sectors %u\n", (unsigned long long)vc->ws[vc->wp], (unsigned long long)vc->vm[vc->wp].physical_start, (unsigned long long)bio->bi_iter.bi_sector, (unsigned long long)vc->vm[vc->wp].end_sector, bio_sectors(bio));
+				//if(bio->bi_rw & REQ_SYNC) printk("sync io..\n");
+			}*/
 
 			vc->gp_list[vc->wp] = 2;//2 is dirty
 		
@@ -967,9 +1027,9 @@ static int vm_map(struct dm_target *ti, struct bio *bio){
 	//if(flags & REQ_IO_STAT) printk("io_stat\n");
 	//if(flags & REQ_MIXED_MERGE) printk("mixed_merge\n");//
 	//if(flags & REQ_PM) printk("pm\n");//
-	if(bio->bi_rw & REQ_THROTTLED){
+	/*if(bio->bi_rw & REQ_THROTTLED){
 		printk("REQ_THROTTLED\n");
-	}
+	}*/
 	vm_lfs_map_bio(ti, bio);
 
 	return DM_MAPIO_REMAPPED;
