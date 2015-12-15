@@ -688,8 +688,9 @@ static int bgrnd_job(struct dm_target *ti){
 							do_div(gs->tp_io_sector, 8);//for reduce division op
 							do_div(cur_sector, 8);//scaling to block number
 
-							rcu_read_lock();{
+							//rcu_read_lock();{
 							//mutex_lock(&vc->lock);
+							{
 							for(i=0; i<size; i++){
 								struct flag_nodes* fn;
 								struct reverse_nodes* rn;
@@ -715,7 +716,7 @@ static int bgrnd_job(struct dm_target *ti){
 								mutex_unlock(&vc->lock);
 							}
 							//mutex_unlock(&vc->lock);
-						}rcu_read_unlock();
+						}//rcu_read_unlock();
 
 						io_req.bi_rw = WRITE; io_req.mem.type = DM_IO_VMA;
 						io_req.mem.ptr.vma = gs->block_buffer; io_req.notify.context = gs;
@@ -821,6 +822,9 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc,
 	remainder = do_div(index, 8);
 
 	//rcu_read_lock();
+	fs = rcu_dereference(vc->fs);
+	//rcu_read_unlock();
+
 	mutex_lock(&vc->lock);
 	if(fs->table[index]->msector == -1){
 		sector_t return_sector;
@@ -828,32 +832,33 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc,
 		struct flag_nodes *fn = NULL;
 		//printk("target_sector %llu, index %llu, mapped sector %llu, ws %llu, wp %u\n", (unsigned long long)target_sector, (unsigned long long)index*nnode_per_page, (unsigned long long)return_sector, (unsigned long long)vc->ws[wp], fs->table[index][sect].wp);
 
-		rcu_read_lock();
+		//rcu_read_lock();
 		
-		printk("initial\n");
+		//printk("initial\n");
 		fs = rcu_dereference(vc->fs);
 		n_wp = rcu_dereference(vc)->ws[wp];
 		rcu_dereference(vc)->ws[wp] += 8;
 		fn = rcu_dereference(fs->table[index]);
 
-		printk("setting fn\n");
+		//printk("setting fn\n");
 		return_sector = rcu_dereference(vc)->vm[wp].physical_start + n_wp;
 		fn->msector = return_sector;
 		fn->wp = wp;
 		
-		printk("setting reverse_table\n");
+		//printk("setting reverse_table\n");
 		ws = n_wp;
 		do_div(ws, 8);
 		//fs->reverse_table[wp][ws].lsector = target_sector;////????
 		fs->reverse_table[wp][ws].index = index;
 		fs->reverse_table[wp][ws].dirty = 0;
 
-		printk("setting return value\n");
+		//printk("setting return value\n");
 		*bdev = rcu_dereference(vc)->vm[wp].dev->bdev;
 		*write_sector = return_sector + remainder;
 
-		rcu_read_unlock();
-		printk("read unlock\n");
+		//rcu_read_unlock();
+
+		//printk("read unlock\n");
 
 		/*return_sector = vc->vm[wp].physical_start + vc->ws[wp];
 		fs->table[index]->msector = return_sector;
@@ -877,21 +882,23 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc,
 			struct flag_nodes *fn = NULL;
 			sector_t n_msector = -1;
 			unsigned long long n_wp = -1;
+			unsigned long long d_num;
 			
-			rcu_read_lock();
+			//rcu_read_lock();
 			n_wp = rcu_dereference(vc)->ws[wp];
 			rcu_dereference(vc)->ws[wp] += 8;
 
 			fs = rcu_dereference(vc->fs);
 			fn = rcu_dereference(fs->table[index]);
 			n_msector = rcu_dereference(vc)->vm[wp].physical_start + n_wp;
+			d_num = rcu_dereference(vc)->d_num[wp];
 
 			ws = fn->msector;
 			ws-= rcu_dereference(vc)->vm[fn->wp].physical_start;
 
 			do_div(ws, 8);
 			rcu_dereference(fs)->reverse_table[wp][ws].dirty = 1;
-			rcu_dereference(vc)->d_num[wp]++;
+			rcu_dereference(vc)->d_num[wp] = d_num + 1;
 
 			fn->msector = n_msector;
 			fn->wp = wp;
@@ -899,7 +906,7 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc,
 
 			*bdev = rcu_dereference(rcu_dereference(vc)->vm[wp].dev)->bdev;
 			*write_sector = n_msector + remainder;
-			rcu_read_unlock();
+			//rcu_read_unlock();
 			
 			/*ws = rcu_dereference(rcu_dereference(fs)->table[index])->msector;
 			ws-= rcu_dereference(vc)->vm[rcu_dereference(rcu_dereference(fs)->table[index])->wp].physical_start;
