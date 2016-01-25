@@ -61,7 +61,10 @@ struct gc_set{
 	char *block_buffer;
 	struct dm_io_client *io_client;
 	struct mutex *lock;
+	struct dm_io_region io;
+	struct dm_io_request io_req;
 	unsigned int vms;
+	unsigned long long tp_table_size;
 };
 
 struct vm {
@@ -100,15 +103,17 @@ struct vm_c {
 	unsigned int num_gp;
 	struct task_struct *th_id;
 	struct flag_set* fs;
+	struct gc_set* gs;
 	struct mutex lock;
 	struct dm_io_client *io_client;
+	unsigned int debug;
 
 	struct vm vm[0];
 };
 
 static int bgrnd_job(struct dm_target *);
 static struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, sector_t target_sector,
-		unsigned int wp, sector_t *write_sector, struct block_device **bdev, unsigned long bi_rw, unsigned int size);
+		unsigned int wp, sector_t *write_sector, struct block_device **bdev, unsigned long bi_rw);
 /*
  * An event is triggered whenever a drive
  * drops out of a stripe volume.
@@ -289,6 +294,8 @@ static int vm_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	vc->gp_list = kmalloc(sizeof(char) * vc->vms, GFP_KERNEL);
 	vc->num_gp = 0;
 	vc->io_client = dm_io_client_create();
+	vc->gs = NULL;
+	vc->debug = 0;
 	for(i=0; i<vc->vms; i++)
 		vc->gp_list[i] = 0;//0 is clean
 	{
@@ -328,7 +335,7 @@ static int vm_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 		unsigned long long j;
 		//unsigned long long r_table_size = (vc->vm[i].end_sector );
 		do_div(r_table_size, 8);
-		//printk("size is %llu\n", r_table_size);
+		printk("r_table_size is %llu\n", r_table_size);
 		vc->fs->reverse_table[i] = vmalloc(sizeof(struct reverse_nodes) * r_table_size);
 		for(j=0; j<r_table_size; j++){
 			vc->fs->reverse_table[i][j].index = -1;
@@ -392,6 +399,14 @@ static void vm_dtr(struct dm_target *ti)
 		kthread_stop(vc->th_id);
 		vc->th_id = NULL;
 	}*/
+	/*if(vc->th_id){
+		kthread_stop(vc->th_id);
+		vc->th_id = NULL;
+	}
+	if(vc->gs){
+		kfree(vc->gs);
+		vc->gs = NULL;
+	}*/
 	vfree(vc->fs->table);
 
 	kfree(vc);
@@ -420,10 +435,9 @@ inline void do_kijil(struct vm_c* vc, struct gc_set *gs){
 	char* kijil_map = vmalloc(disk_block_size);
 	struct reverse_nodes* gp_reverse_table = gs->reverse_table[gs->gp];
 
+	//printk("kijil_start\n");
 	do_div(disk_block_size, 8);
-	if(kijil_map == NULL) printk("unknown kijil_map error\n");
 	///why kijil grain is 1 byte?? more coars grain??
-
 	/*for(i=0; i<disk_block_size; i++){
 		printk("%llu:%u ", i, gp_reverse_table[i].dirty);
 		if(i !=0 && i%30 == 0)
@@ -431,8 +445,10 @@ inline void do_kijil(struct vm_c* vc, struct gc_set *gs){
 	}
 	printk("rv table print end\n");*/
 
+	//printk("kijil_start_initialize\n");
 	if(gp_reverse_table[0].dirty == 0)		num_count = 1;
 	else if(gp_reverse_table[0].dirty == 1)	num_count = -1;
+	//printk("for_loop_start\n");
 	for(i = 1; i<disk_block_size; i++){///already check 0 index
 		if(num_count > 0){
 			if(num_count == 127){//range over
@@ -464,6 +480,7 @@ inline void do_kijil(struct vm_c* vc, struct gc_set *gs){
 		else printk("unknown else error\n");
 	}
 	kijil_map[gs->kijil_size++] = num_count;
+	//printk("kijil_loop_end\n");
 	//end doing kijil
 	/*for(i=0; i<vc->gs->kijil_size; i++){//Printing kijil_map
 		printk("%llu:%d ", i, kijil_map[i]);
@@ -472,7 +489,9 @@ inline void do_kijil(struct vm_c* vc, struct gc_set *gs){
 	}*/
 	gs->kijil_map = vmalloc(gs->kijil_size);
 	memcpy(gs->kijil_map, kijil_map, gs->kijil_size);
+	//printk("kijil_map_copy\n");
 	vfree(kijil_map); kijil_map = NULL;
+	//printk("kijil_end\n");
 }
 
 inline char point_targeting(struct vm_c *vc, struct gc_set *gs){
@@ -516,6 +535,7 @@ inline struct gc_set* weathering_check(struct vm_c *vc){
 		printk("mig is start\n");
 		gs = kmalloc(sizeof(struct gc_set), GFP_KERNEL);
 
+		//printk("setting_gs_value\n");
 		gs->io_flag = 0;
 		gs->cur_sector = -1;
 		gs->index = 0;
@@ -525,9 +545,11 @@ inline struct gc_set* weathering_check(struct vm_c *vc){
 		gs->phase = 2;
 		gs->io_client = vc->io_client;
 		gs->lock = &vc->lock;
+		printk("gs_lock %p, vc_lock %p\n", gs->lock, &vc->lock);
 		gs->ptr_ovflw_size = 0;
 		gs->vms = vc->vms;
 
+		printk("point_targeting\n");
 		if(point_targeting(vc, gs) == 0){
 			vfree(gs->block_buffer);
 			gs->block_buffer = NULL;
@@ -536,18 +558,19 @@ inline struct gc_set* weathering_check(struct vm_c *vc){
 			return NULL;//failed point targeting
 		}
 
+		printk("gp_list_setting\n");
 		//gp_list's weight is judge to selecting pointer. policy is avoid to high weight
 		//target ptr is write intensive job. gc ptr is read intensive job.
 		vc->gp_list[gs->gp] = 3;//3 is garbage collecting...
 		vc->gp_list[gs->tp] = 4;//4 is targeting...
 
+		//printk("kijil\n");
 		gs->table = vc->fs->table;
 		gs->reverse_table = vc->fs->reverse_table;
 		do_kijil(vc, gs);////kijil_mapping
 		printk("gp_count %u, gp %u, tp %u, kijil_size %llu\n", vc->num_gp, gs->gp, gs->tp, gs->kijil_size);
 
 		gs->phase = 0;
-		//return 1;
 		return gs;
 	}
 	return NULL;
@@ -555,7 +578,7 @@ inline struct gc_set* weathering_check(struct vm_c *vc){
 
 static void read_callback(unsigned long error, void* context){
 	struct gc_set *gs = (struct gc_set*) context;
-	gs->io_flag = 2;
+	gs->io_flag = 1;
 }
 
 static void write_callback(unsigned long error, void* context){
@@ -565,12 +588,23 @@ static void write_callback(unsigned long error, void* context){
 	unsigned int i;
 	if(gs->kijil_map[gs->index] < 0) printk("unknown write_callback's invalid error\n");
 
-	//rcu_read_lock();
-	for(i=0; i<size; i++){
-		struct reverse_nodes* rn = &(tp_reverse_table[gs->tp_io_sector + i]);
-		gs->table[rn->index]->msector += (gs->tp_io_sector * 8) + (i*8);//want to block scale
+	if(size != 0){
+		printk("write_back, before lock\n");
+		mutex_lock(gs->lock);
+		for(i=0; i<size; i++){
+			printk("size %u, tp_io_sector %llu, i %u, sum %llu\n", size, gs->tp_io_sector, i, gs->tp_io_sector);
+			if(gs->tp_io_sector+i > gs->tp_table_size){
+				printk("fucking error\n");
+				break;
+			}
+			struct reverse_nodes* rn = &(tp_reverse_table[gs->tp_io_sector + i]);
+			//printk("rn %p rn_index %llu msector %llu adding value %llu\n", rn, rn->index, gs->table[rn->index]->msector, (gs->tp_io_sector * 8) + (i*8));
+			if(rn->index == -1) continue;
+			gs->table[rn->index]->msector += (gs->tp_io_sector * 8) + (i*8);//want to block scale
+		}
+		mutex_unlock(gs->lock);
+		printk("write back, after unlock\n");
 	}
-	//rcu_read_unlock();
 
 	gs->cur_sector += size * 8;
 	gs->index++;
@@ -583,7 +617,7 @@ static void write_callback(unsigned long error, void* context){
 	if(gs->index < gs->kijil_size)
 		gs->io_flag = 0;
 	else{
-		gs->io_flag = 3;
+		gs->io_flag = 2;
 		gs->phase = 1;
 		printk("index %llu, size %llu, phase 0 is finished\n", gs->index, gs->kijil_size);
 	}
@@ -645,68 +679,68 @@ static int bgrnd_job(struct dm_target *ti){
 			if(gs != NULL){
 				if(gs->phase == 0){
 					if(gs->kijil_size == 0){
-						//printk("kijil_size 0\n");
-						gs->io_flag = 3;
+						printk("kijil_size 0\n");
+						gs->io_flag = 2;
 						gs->phase = 1;//??? 2??
 					}
 					if(unlikely(gs->cur_sector == -1)){
-						//printk("cur_sector -1\n");
+						printk("cur_sector -1\n");
 						gs->cur_sector = vc->vm[gs->gp].physical_start;
 						gs->index = 0;
 					}
 					if(gs->io_flag == 0){
 						//printk("1. index %llu, cur_sector %llu, size %d\n", gs->index, (unsigned long long)gs->cur_sector, gs->kijil_map[gs->index]);
-						struct dm_io_region io;
-						struct dm_io_request io_req;
+						/*struct dm_io_region io;
+						struct dm_io_request io_req;*/
 
-						//printk("io_flag 0\n");
-						while(gs->kijil_map[gs->index] <= 0){//if invalid
+						printk("io_flag 0\n");
+						//while(gs->kijil_map[gs->index] <= 0){//if invalid
+						while(gs->kijil_map[gs->index] < 0){//if invalid
 							//printk("map_invalid\n");
 							gs->cur_sector -= (gs->kijil_map[gs->index] * 8);
 							gs->index++;//index and sector increase
 							if(gs->index >= gs->kijil_size){
-								//printk("fucking.....\n");
-								gs->io_flag = 3;
+								gs->io_flag = 2;
 								gs->phase = 1;
 								break;
 							}
 							//printk("2. index %llu, cur_sector %llu, size %d\n", gs->index, (unsigned long long)gs->cur_sector, gs->kijil_map[gs->index]);
 						}
-						if(gs->phase == 1){
-							//printk("fucking 2\n");
+						if(gs->phase == 1)
 							continue;
-						}
+						printk("valid map\n");
 						
-						io_req.bi_rw = READ; io_req.mem.type = DM_IO_VMA;
-						io_req.mem.ptr.vma = gs->block_buffer;
-						io_req.notify.fn = read_callback; io_req.notify.context = gs; io_req.client = gs->io_client;
+						gs->io_req.bi_rw = READ; gs->io_req.mem.type = DM_IO_VMA;
+						gs->io_req.mem.ptr.vma = gs->block_buffer;
+						gs->io_req.notify.fn = read_callback; gs->io_req.notify.context = gs; gs->io_req.client = gs->io_client;
 
-						io.bdev = vc->vm[gs->gp].dev->bdev;
-						io.sector = gs->cur_sector;
-						io.count = (gs->kijil_map[gs->index] * 8);
+						gs->io.bdev = vc->vm[gs->gp].dev->bdev;
+						gs->io.sector = gs->cur_sector;
+						gs->io.count = (gs->kijil_map[gs->index] * 8);
 
-						if(io.count != 0 && io.sector + io.count > vc->vm[gs->gp].end_sector){
-							/*printk("unknown range over error!\n");
-							printk("index %llu, io_sector %llu, io_count %llu\n", gs->index, (unsigned long long)io.sector, (unsigned long long)io.count);*/
-							gs->io_flag = 3;
+						if(gs->io.count != 0 && gs->io.sector + gs->io.count > vc->vm[gs->gp].end_sector){
+							printk("unknown range over error!\n");
+							/*printk("index %llu, io_sector %llu, io_count %llu\n", gs->index, (unsigned long long)io.sector, (unsigned long long)io.count);*/
+							gs->io_flag = 2;
 							gs->phase = 1;
 						}
 						else{
-							//printk("not_range_over\n");
-							gs->io_flag = 1;
-							dm_io(&io_req, 1, &io, NULL);
+							printk("not_range_over\n");
+							gs->io_flag = 2;
+							dm_io(&gs->io_req, 1, &gs->io, NULL);
 						}
 					}
-					else if(gs->io_flag == 2){
+					else if(gs->io_flag == 1){
 						unsigned int size = gs->kijil_map[gs->index];
-						struct dm_io_region io;
-						struct dm_io_request io_req;
+						/*struct dm_io_region io;
+						struct dm_io_request io_req;*/
 						struct reverse_nodes* tp_reverse_table = gs->reverse_table[gs->tp];
 						struct reverse_nodes* gp_reverse_table = gs->reverse_table[gs->gp];
 
 						unsigned int i;
 						unsigned long long cur_sector = gs->cur_sector - vc->vm[gs->gp].physical_start;
-						//printk("io_flag 2\n");
+						printk("io_flag 2\n");
+						gs->tp_table_size = (vc->vm[gs->tp].end_sector+7 - vc->vm[gs->tp].physical_start);
 						gs->tp_io_sector = vc->ws[gs->tp];///??? What is this?
 						do_div(gs->tp_io_sector, 8);//for reduce division op
 						do_div(cur_sector, 8);//scaling to block number
@@ -721,56 +755,45 @@ static int bgrnd_job(struct dm_target *ti){
 								unsigned long long new_ws = 0;
 
 								if(vc->ws[g_tp] + vc->vm[g_tp].physical_start + 8 > vc->vm[g_tp].end_sector){
-									//printk("over range by ws ws %llu, total %llu\n", vc->ws[gs->tp], vc->ws[gs->tp] + vc->vm[gs->tp].physical_start + 8);
 									gs->ptr_ovflw_size = i;
 									vc->gp_list[g_tp] = 2;
 									break;
 								}
 
-								printk("tp_reverse_table\n");
 								tp_reverse_table[g_tis+i].index = gp_reverse_table[cur_sector+i].index;//need by block scale
 								tp_reverse_table[g_tis+i].dirty = 0;
 
-								printk("rn,fn_operate\n");
 								rn = &(tp_reverse_table[g_tis+i]);//&tp_reverse_table[gs->tp_io_sector+i];
-								if(rn->index == -1){
-									printk("-1. rn_ptr_operate, rn_index %llu, size %llu\n", rn->index, vc->num_entry);
-									printk("i %u, size %u\n", i, size);
-									//printk("rn index is initial value...\n");
+								if(rn->index == -1)
 									continue;
-								}
-								/*else{
-									printk("else. rn_ptr_operate, rn_index %llu, size %llu\n", rn->index, vc->num_entry);
-								}*/
-								fn = gs->table[rn->index];////////thisthisthis
-								//gs->table[rn->index];
-								printk("fn_ptr_operate\n");
+								fn = gs->table[rn->index];
 								fn->msector = vc->vm[g_tp].physical_start;
-								//printk("set_to_fn's_msector\n");
 
-								printk("ws operate\n");
 								new_ws = vc->ws[g_tp] + 8;
-								//printk("new_ws %llu, g_tp %u, ptr %p\n", new_ws, g_tp, &vc->ws[g_tp]);
 								vc->ws[g_tp] = new_ws;
-								printk("bottom_of_loop\n");
 							}
 						}mutex_unlock(&vc->lock);
-						//printk("end_in_flag2_loop\n");
+						printk("end_in_flag2_loop\n");
 
-						io_req.bi_rw = WRITE; io_req.mem.type = DM_IO_VMA;
-						io_req.mem.ptr.vma = gs->block_buffer; io_req.notify.context = gs;
-						io_req.notify.fn = write_callback; io_req.client = gs->io_client;
+						gs->io_req.bi_rw = WRITE; gs->io_req.mem.type = DM_IO_VMA;
+						gs->io_req.mem.ptr.vma = gs->block_buffer; gs->io_req.notify.context = gs;
+						gs->io_req.notify.fn = write_callback; gs->io_req.client = gs->io_client;
 
-						io.bdev = vc->vm[gs->tp].dev->bdev;
-						io.sector = vc->vm[gs->tp].physical_start + (gs->tp_io_sector*8);
-						io.count = (gs->kijil_map[gs->index] - gs->ptr_ovflw_size) * 8;
+						gs->io.bdev = vc->vm[gs->tp].dev->bdev;
+						gs->io.sector = vc->vm[gs->tp].physical_start + (gs->tp_io_sector*8);
+						gs->io.count = (gs->kijil_map[gs->index] - gs->ptr_ovflw_size) * 8;
 
-						if(io.count != 0 && io.sector + io.count > vc->vm[gs->tp].end_sector){
+						/*if(io.count != 0 && io.sector + io.count > vc->vm[gs->tp].end_sector){
 							printk("unknown range over error!\n");
-						}
+						}*/
 
-						gs->io_flag = 3;
-						dm_io(&io_req, 1, &io, NULL);
+						gs->io_flag = 2;
+						printk("call dm_io2\n");
+						dm_io(&gs->io_req, 1, &gs->io, NULL);
+					}
+					else if(gs->io_flag == 2){
+						//flag 2 is I/O wait flag...
+						msleep(10);
 					}
 				}
 				if(gs->phase == 1){
@@ -794,22 +817,26 @@ static int bgrnd_job(struct dm_target *ti){
 
 					kfree(gs);
 					gs = NULL;
+					vc->gs = NULL;
 					
 					vc->mig_flag = 0;
 					vc->num_gp--;
 					for(i=0; i<vc->vms; i++){
 						if(vc->gp_list[i] == 2){
-							//printk("detect gp! is... %u\n", i);
+							printk("detect gp! is... %u\n", i);
 							vc->mig_flag = 1;
 							break;
 						}
 					}
+					printk("gc is finished\n");
 				}
 			}
 			else{//wait for weathering...
 				gs = weathering_check(vc);
-				if(gs != NULL)
+				if(gs != NULL){
+					vc->gs = gs;
 					continue;
+				}
 				ssleep(1);
 			}
 		}
@@ -857,10 +884,9 @@ static int vm_map_range(struct vm_c *vc, struct bio *bio,
 	}
 }
 
-static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc,
-		sector_t target_sector,	unsigned int wp,
-		sector_t *write_sector,	struct block_device **bdev,
-		unsigned long bi_rw, unsigned int size){
+static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, sector_t target_sector,
+		unsigned int wp, sector_t *write_sector,
+		struct block_device **bdev,	unsigned long bi_rw){
 	struct flag_set *fs = NULL;// = vc->fs;
 	unsigned long long index = target_sector;
 	unsigned int remainder = 0;
@@ -870,65 +896,6 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc,
 	fs = vc->fs;
 
 	mutex_lock(&vc->lock);
-	/*if(fs->table[index]->msector == -1){
-		sector_t return_sector;
-		unsigned long long n_wp = -1;
-		struct flag_nodes *fn = NULL;
-		//printk("target_sector %llu, index %llu, mapped sector %llu, ws %llu, wp %u\n", (unsigned long long)target_sector, (unsigned long long)index*nnode_per_page, (unsigned long long)return_sector, (unsigned long long)vc->ws[wp], fs->table[index][sect].wp);
-
-		fs = vc->fs;
-		n_wp = vc->ws[wp];
-		vc->ws[wp] += 8;
-		fn = fs->table[index];
-
-		return_sector = vc->vm[wp].physical_start + n_wp;
-		fn->msector = return_sector;
-		fn->wp = wp;
-		
-		ws = n_wp;
-		do_div(ws, 8);
-		fs->reverse_table[wp][ws].index = index;
-		fs->reverse_table[wp][ws].dirty = 0;
-
-		*bdev = vc->vm[wp].dev->bdev;
-		*write_sector = return_sector + remainder;
-
-	}
-	else{
-		if(bi_rw == WRITE){//write
-			//and... new alloc mapped sector
-			struct flag_nodes *fn = NULL;
-			sector_t n_msector = -1;
-			unsigned long long n_ws = -1;
-			unsigned long long d_num;
-			
-			n_ws = vc->ws[wp];
-			vc->ws[wp] += 8;
-
-			fs = vc->fs;
-			fn = fs->table[index];
-			n_msector = vc->vm[wp].physical_start + n_ws;
-			d_num = vc->d_num[wp];
-
-			ws = fn->msector;
-			ws-= vc->vm[fn->wp].physical_start;
-
-			do_div(ws, 8);
-			fs->reverse_table[wp][ws].dirty = 1;
-			vc->d_num[wp] = d_num + 1;
-
-			fn->msector = n_msector;
-			fn->wp = wp;
-			//printk("target_sector %llu, index %llu, mapped sector %llu, ws %llu, wp %u, flag %u\n", (unsigned long long)target_sector, (unsigned long long)index*nnode_per_page, (unsigned long long)fs->table[index][sect].msector, (unsigned long long)vc->ws[wp], fs->table[index][sect].wp, fs->table[index][sect].flag);
-
-			*bdev = vc->vm[wp].dev->bdev;
-			*write_sector = n_msector + remainder;
-		}
-		else{//read
-			*bdev = vc->vm[fs->table[index]->wp].dev->bdev;
-			*write_sector = fs->table[index]->msector + remainder;
-		}
-	}*/
 	if(bi_rw == WRITE){//write
 		//and... new alloc mapped sector
 		struct flag_nodes *fn = NULL;
@@ -1004,9 +971,10 @@ static inline void vm_lfs_map_bio(struct dm_target *ti, struct bio *bio){
 	if(bio_sectors(bio)){
 		temp = vm_lfs_map_sector(vc, backup_sector,
 				vc->wp, &bio->bi_iter.bi_sector,
-				&bio->bi_bdev, bio_rw(bio), 1);
+				&bio->bi_bdev, bio_rw(bio));
 
 		///need to implement for ws 0 is valid by cold valid data
+		//if(vc->debug) printk("ws %llu, start %llu, bi_sector %llu, end_sector %llu, sectors %u\n", (unsigned long long)vc->ws[vc->wp], (unsigned long long)vc->vm[vc->wp].physical_start, (unsigned long long)bio->bi_iter.bi_sector, (unsigned long long)vc->vm[vc->wp].end_sector, bio_sectors(bio));
 		while(bio->bi_iter.bi_sector + bio_sectors(bio) > vc->vm[vc->wp].end_sector){
 			unsigned long long ws;
 			unsigned int next_point;
@@ -1026,7 +994,7 @@ static inline void vm_lfs_map_bio(struct dm_target *ti, struct bio *bio){
 			for(i=0; i<vc->vms; i++){
 				unsigned weight = 0;
 				next_point = (next_point + 1) % vc->vms;
-				if(vc->vm[next_point].main_dev == gp_main_dev)
+				if(vc->vm[next_point].main_dev == gp_main_dev)//마이너 넘버가 같아도 메이저 넘버가 다를 수 있음... 수정 바람...
 					weight = 5;
 				weight += vc->gp_list[next_point];
 				if(min_weight > weight){//search target device by minimal weight
@@ -1039,19 +1007,23 @@ static inline void vm_lfs_map_bio(struct dm_target *ti, struct bio *bio){
 			//printk("bi_sector %llu, +sectors %llu\n", (unsigned long long)bio->bi_iter.bi_sector, (unsigned long long)bio->bi_iter.bi_sector + bio_sectors(bio));
 			
 			mutex_lock(&vc->lock);
-			ws = temp->msector - vc->vm[temp->wp].physical_start;
-			do_div(ws, 8);
-			vc->fs->reverse_table[temp->wp][ws].dirty = 1;
-			temp->msector = -1;
-			
+			ws = temp->msector;
+			if(ws != -1){
+				ws-= vc->vm[temp->wp].physical_start;
+				do_div(ws, 8);
+				vc->fs->reverse_table[temp->wp][ws].dirty = 1;
+			}
+
+			temp->msector = -1;		
 			vc->wp = min;
 			mutex_unlock(&vc->lock);
 			
 			vm_lfs_map_sector(vc, backup_sector,
-					vc->wp, &bio->bi_iter.bi_sector,
-					&bio->bi_bdev, bio_rw(bio), 1);
+					vc->wp,	&bio->bi_iter.bi_sector,
+					&bio->bi_bdev, bio_rw(bio));
 		
-			if(!vc->mig_flag) vc->mig_flag = 1;
+			//vc->debug = 1;
+			if(vc->mig_flag == 0) vc->mig_flag = 1;
 		}
 	}
 }
