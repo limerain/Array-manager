@@ -590,9 +590,9 @@ static void write_callback(unsigned long error, void* context){
 
 	if(size != 0){
 		printk("write_back, before lock\n");
-		mutex_lock(gs->lock);
+		//mutex_lock(gs->lock);
 		for(i=0; i<size; i++){
-			printk("size %u, tp_io_sector %llu, i %u, sum %llu\n", size, gs->tp_io_sector, i, gs->tp_io_sector);
+			//printk("size %u, tp_io_sector %llu, i %u, sum %llu\n", size, gs->tp_io_sector, i, gs->tp_io_sector);
 			if(gs->tp_io_sector+i > gs->tp_table_size){
 				printk("fucking error\n");
 				break;
@@ -602,7 +602,7 @@ static void write_callback(unsigned long error, void* context){
 			if(rn->index == -1) continue;
 			gs->table[rn->index]->msector += (gs->tp_io_sector * 8) + (i*8);//want to block scale
 		}
-		mutex_unlock(gs->lock);
+		//mutex_unlock(gs->lock);
 		printk("write back, after unlock\n");
 	}
 
@@ -617,7 +617,7 @@ static void write_callback(unsigned long error, void* context){
 	if(gs->index < gs->kijil_size)
 		gs->io_flag = 0;
 	else{
-		gs->io_flag = 2;
+		gs->io_flag = 3;
 		gs->phase = 1;
 		printk("index %llu, size %llu, phase 0 is finished\n", gs->index, gs->kijil_size);
 	}
@@ -680,7 +680,7 @@ static int bgrnd_job(struct dm_target *ti){
 				if(gs->phase == 0){
 					if(gs->kijil_size == 0){
 						printk("kijil_size 0\n");
-						gs->io_flag = 2;
+						gs->io_flag = 3;
 						gs->phase = 1;//??? 2??
 					}
 					if(unlikely(gs->cur_sector == -1)){
@@ -700,7 +700,7 @@ static int bgrnd_job(struct dm_target *ti){
 							gs->cur_sector -= (gs->kijil_map[gs->index] * 8);
 							gs->index++;//index and sector increase
 							if(gs->index >= gs->kijil_size){
-								gs->io_flag = 2;
+								gs->io_flag = 3;
 								gs->phase = 1;
 								break;
 							}
@@ -721,12 +721,12 @@ static int bgrnd_job(struct dm_target *ti){
 						if(gs->io.count != 0 && gs->io.sector + gs->io.count > vc->vm[gs->gp].end_sector){
 							printk("unknown range over error!\n");
 							/*printk("index %llu, io_sector %llu, io_count %llu\n", gs->index, (unsigned long long)io.sector, (unsigned long long)io.count);*/
-							gs->io_flag = 2;
+							gs->io_flag = 3;
 							gs->phase = 1;
 						}
 						else{
 							printk("not_range_over\n");
-							gs->io_flag = 2;
+							gs->io_flag = 3;
 							dm_io(&gs->io_req, 1, &gs->io, NULL);
 						}
 					}
@@ -741,7 +741,7 @@ static int bgrnd_job(struct dm_target *ti){
 						unsigned long long cur_sector = gs->cur_sector - vc->vm[gs->gp].physical_start;
 						printk("io_flag 2\n");
 						gs->tp_table_size = (vc->vm[gs->tp].end_sector+7 - vc->vm[gs->tp].physical_start);
-						gs->tp_io_sector = vc->ws[gs->tp];///??? What is this?
+						gs->tp_io_sector = vc->ws[gs->tp];///??? is right?
 						do_div(gs->tp_io_sector, 8);//for reduce division op
 						do_div(cur_sector, 8);//scaling to block number
 						
@@ -752,25 +752,26 @@ static int bgrnd_job(struct dm_target *ti){
 							for(i=0; i<size; i++){
 								struct flag_nodes* fn = NULL;
 								struct reverse_nodes* rn = NULL;
-								unsigned long long new_ws = 0;
 
 								if(vc->ws[g_tp] + vc->vm[g_tp].physical_start + 8 > vc->vm[g_tp].end_sector){
 									gs->ptr_ovflw_size = i;
 									vc->gp_list[g_tp] = 2;
 									break;
 								}
+								rn = &(tp_reverse_table[g_tis+i]);//&tp_reverse_table[gs->tp_io_sector+i];
+								if(rn->index == -1)
+									continue;
 
 								tp_reverse_table[g_tis+i].index = gp_reverse_table[cur_sector+i].index;//need by block scale
 								tp_reverse_table[g_tis+i].dirty = 0;
 
-								rn = &(tp_reverse_table[g_tis+i]);//&tp_reverse_table[gs->tp_io_sector+i];
-								if(rn->index == -1)
-									continue;
+								//mutex_lock(&vc->lock);/////is this overhead??
 								fn = gs->table[rn->index];
-								fn->msector = vc->vm[g_tp].physical_start;
+								fn->msector = vc->vm[g_tp].physical_start + vc->ws[g_tp];
+								fn->wp = g_tp;
+								//mutex_unlock(&vc->unlock);
 
-								new_ws = vc->ws[g_tp] + 8;
-								vc->ws[g_tp] = new_ws;
+								vc->ws[g_tp] += 8;
 							}
 						}mutex_unlock(&vc->lock);
 						printk("end_in_flag2_loop\n");
@@ -787,11 +788,11 @@ static int bgrnd_job(struct dm_target *ti){
 							printk("unknown range over error!\n");
 						}*/
 
-						gs->io_flag = 2;
+						gs->io_flag = 3;
 						printk("call dm_io2\n");
 						dm_io(&gs->io_req, 1, &gs->io, NULL);
 					}
-					else if(gs->io_flag == 2){
+					else if(gs->io_flag == 3){
 						//flag 2 is I/O wait flag...
 						msleep(10);
 					}
@@ -957,6 +958,67 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, sector_t tar
 			*write_sector = fs->table[index]->msector + remainder;
 		}
 	}
+	/*if(fs->table[index]->msector == -1){//first read
+			sector_t return_sector;
+			unsigned long long n_wp = -1;
+			struct flag_nodes *fn = NULL;
+			
+			fs = vc->fs;
+			n_wp = vc->ws[wp];
+			vc->ws[wp] += 8;
+			fn = fs->table[index];
+			
+			return_sector = vc->vm[wp].physical_start + n_wp;
+			fn->msector = return_sector;
+			fn->wp = wp;
+			
+			ws = n_wp;
+			do_div(ws, 8);
+			fs->reverse_table[wp][ws].index = index;
+			fs->reverse_table[wp][ws].dirty = 0;
+			//printk("2. target_sector %llu, index %llu, mapped sector %llu, ws %llu, wp %u\n", (unsigned long long)target_sector, (unsigned long long)index, (unsigned long long)return_sector, (unsigned long long)vc->ws[wp], fs->table[index]->wp);
+		
+			*bdev = vc->vm[wp].dev->bdev;
+			*write_sector = return_sector + remainder;
+			
+	}
+	else{
+		if(bi_rw == WRITE){//write
+			//and... new alloc mapped sector
+			struct flag_nodes *fn = NULL;
+			sector_t n_msector = -1;
+			unsigned long long n_ws = -1;
+			unsigned long long d_num;
+			
+			n_ws = vc->ws[wp];
+			vc->ws[wp] += 8;
+			
+			fs = vc->fs;
+			fn = fs->table[index];
+			n_msector = vc->vm[wp].physical_start + n_ws;
+			d_num = vc->d_num[wp];
+			
+			ws = fn->msector;
+			if(ws != -1){
+				ws-= vc->vm[fn->wp].physical_start;
+				
+				do_div(ws, 8);
+				fs->reverse_table[wp][ws].dirty = 1;
+				vc->d_num[wp] = d_num + 1;
+			}
+			fn->msector = n_msector;
+			fn->wp = wp;
+			//printk("1. target_sector %llu, index %llu, mapped sector %llu, ws %llu, wp %u\n", (unsigned long long)target_sector, (unsigned long long)index, (unsigned long long)fs->table[index]->msector, (unsigned long long)vc->ws[wp], fs->table[index]->wp);
+			
+			*bdev = vc->vm[wp].dev->bdev;
+			*write_sector = n_msector + remainder;
+		}
+		else{
+			//printk("3. target_sector %llu, index %llu, mapped sector %llu, ws %llu, wp %u\n", (unsigned long long)target_sector, (unsigned long long)index, (unsigned long long)fs->table[index]->msector + remainder, (unsigned long long)vc->ws[wp], fs->table[index]->wp);
+			*bdev = vc->vm[fs->table[index]->wp].dev->bdev;
+			*write_sector = fs->table[index]->msector + remainder;
+		}
+	}*/
 	mutex_unlock(&vc->lock);
 
 	return fs->table[index];
