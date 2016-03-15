@@ -589,7 +589,6 @@ static void write_callback(unsigned long error, void* context){
 	if(gs->kijil_map[gs->index] < 0) printk("unknown write_callback's invalid error\n");
 
 	if(size != 0){
-		printk("write_back, before lock\n");
 		//mutex_lock(gs->lock);
 		for(i=0; i<size; i++){
 			//printk("size %u, tp_io_sector %llu, i %u, sum %llu\n", size, gs->tp_io_sector, i, gs->tp_io_sector);
@@ -603,7 +602,6 @@ static void write_callback(unsigned long error, void* context){
 			gs->table[rn->index]->msector += (gs->tp_io_sector * 8) + (i*8);//want to block scale
 		}
 		//mutex_unlock(gs->lock);
-		printk("write back, after unlock\n");
 	}
 
 	gs->cur_sector += size * 8;
@@ -679,12 +677,12 @@ static int bgrnd_job(struct dm_target *ti){
 			if(gs != NULL){
 				if(gs->phase == 0){
 					if(gs->kijil_size == 0){
-						printk("kijil_size 0\n");
+						//printk("kijil_size 0\n");
 						gs->io_flag = 3;
 						gs->phase = 1;//??? 2??
 					}
 					if(unlikely(gs->cur_sector == -1)){
-						printk("cur_sector -1\n");
+						//printk("cur_sector -1\n");
 						gs->cur_sector = vc->vm[gs->gp].physical_start;
 						gs->index = 0;
 					}
@@ -693,7 +691,6 @@ static int bgrnd_job(struct dm_target *ti){
 						/*struct dm_io_region io;
 						struct dm_io_request io_req;*/
 
-						printk("io_flag 0\n");
 						//while(gs->kijil_map[gs->index] <= 0){//if invalid
 						while(gs->kijil_map[gs->index] < 0){//if invalid
 							//printk("map_invalid\n");
@@ -708,7 +705,6 @@ static int bgrnd_job(struct dm_target *ti){
 						}
 						if(gs->phase == 1)
 							continue;
-						printk("valid map\n");
 						
 						gs->io_req.bi_rw = READ; gs->io_req.mem.type = DM_IO_VMA;
 						gs->io_req.mem.ptr.vma = gs->block_buffer;
@@ -725,7 +721,7 @@ static int bgrnd_job(struct dm_target *ti){
 							gs->phase = 1;
 						}
 						else{
-							printk("not_range_over\n");
+							//printk("not_range_over\n");
 							gs->io_flag = 3;
 							dm_io(&gs->io_req, 1, &gs->io, NULL);
 						}
@@ -739,7 +735,6 @@ static int bgrnd_job(struct dm_target *ti){
 
 						unsigned int i;
 						unsigned long long cur_sector = gs->cur_sector - vc->vm[gs->gp].physical_start;
-						printk("io_flag 2\n");
 						gs->tp_table_size = (vc->vm[gs->tp].end_sector+7 - vc->vm[gs->tp].physical_start);
 						gs->tp_io_sector = vc->ws[gs->tp];///??? is right?
 						do_div(gs->tp_io_sector, 8);//for reduce division op
@@ -774,7 +769,6 @@ static int bgrnd_job(struct dm_target *ti){
 								vc->ws[g_tp] += 8;
 							}
 						}mutex_unlock(&vc->lock);
-						printk("end_in_flag2_loop\n");
 
 						gs->io_req.bi_rw = WRITE; gs->io_req.mem.type = DM_IO_VMA;
 						gs->io_req.mem.ptr.vma = gs->block_buffer; gs->io_req.notify.context = gs;
@@ -789,7 +783,6 @@ static int bgrnd_job(struct dm_target *ti){
 						}*/
 
 						gs->io_flag = 3;
-						printk("call dm_io2\n");
 						dm_io(&gs->io_req, 1, &gs->io, NULL);
 					}
 					else if(gs->io_flag == 3){
