@@ -922,30 +922,24 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, sector_t tar
 		}
 		fn->msector = n_msector;
 		fn->wp = wp;
+
+		n_msector-= vc->vm[vc->wp].physical_start;
+		do_div(n_msector, 8);
+
+		fs->reverse_table[vc->wp][n_msector].index = index;
+		fs->reverse_table[vc->wp][n_msector].dirty = 0;
 		//printk("1. target_sector %llu, index %llu, mapped sector %llu, ws %llu, wp %u\n", (unsigned long long)target_sector, (unsigned long long)index, (unsigned long long)fs->table[index]->msector, (unsigned long long)vc->ws[wp], fs->table[index]->wp);
 		
 		*bdev = vc->vm[wp].dev->bdev;
-		*write_sector = n_msector + remainder;
+		*write_sector = fn->msector + remainder;
 	}
 	else{//read
 		if(fs->table[index]->msector == -1){//first read
 			sector_t return_sector;
-			unsigned long long n_wp = -1;
-			struct flag_nodes *fn = NULL;
+
+			return_sector = vc->ws[vc->wp];
+			return_sector+= vc->vm[vc->wp].physical_start;
 			
-			fs = vc->fs;
-			n_wp = vc->ws[wp];
-			vc->ws[wp] += 8;
-			fn = fs->table[index];
-			
-			return_sector = vc->vm[wp].physical_start + n_wp;
-			fn->msector = return_sector;
-			fn->wp = wp;
-			
-			ws = n_wp;
-			do_div(ws, 8);
-			fs->reverse_table[wp][ws].index = index;
-			fs->reverse_table[wp][ws].dirty = 0;
 			//printk("2. target_sector %llu, index %llu, mapped sector %llu, ws %llu, wp %u\n", (unsigned long long)target_sector, (unsigned long long)index, (unsigned long long)return_sector, (unsigned long long)vc->ws[wp], fs->table[index]->wp);
 		
 			*bdev = vc->vm[wp].dev->bdev;
@@ -958,67 +952,6 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, sector_t tar
 			*write_sector = fs->table[index]->msector + remainder;
 		}
 	}
-	/*if(fs->table[index]->msector == -1){//first read
-			sector_t return_sector;
-			unsigned long long n_wp = -1;
-			struct flag_nodes *fn = NULL;
-			
-			fs = vc->fs;
-			n_wp = vc->ws[wp];
-			vc->ws[wp] += 8;
-			fn = fs->table[index];
-			
-			return_sector = vc->vm[wp].physical_start + n_wp;
-			fn->msector = return_sector;
-			fn->wp = wp;
-			
-			ws = n_wp;
-			do_div(ws, 8);
-			fs->reverse_table[wp][ws].index = index;
-			fs->reverse_table[wp][ws].dirty = 0;
-			//printk("2. target_sector %llu, index %llu, mapped sector %llu, ws %llu, wp %u\n", (unsigned long long)target_sector, (unsigned long long)index, (unsigned long long)return_sector, (unsigned long long)vc->ws[wp], fs->table[index]->wp);
-		
-			*bdev = vc->vm[wp].dev->bdev;
-			*write_sector = return_sector + remainder;
-			
-	}
-	else{
-		if(bi_rw == WRITE){//write
-			//and... new alloc mapped sector
-			struct flag_nodes *fn = NULL;
-			sector_t n_msector = -1;
-			unsigned long long n_ws = -1;
-			unsigned long long d_num;
-			
-			n_ws = vc->ws[wp];
-			vc->ws[wp] += 8;
-			
-			fs = vc->fs;
-			fn = fs->table[index];
-			n_msector = vc->vm[wp].physical_start + n_ws;
-			d_num = vc->d_num[wp];
-			
-			ws = fn->msector;
-			if(ws != -1){
-				ws-= vc->vm[fn->wp].physical_start;
-				
-				do_div(ws, 8);
-				fs->reverse_table[wp][ws].dirty = 1;
-				vc->d_num[wp] = d_num + 1;
-			}
-			fn->msector = n_msector;
-			fn->wp = wp;
-			//printk("1. target_sector %llu, index %llu, mapped sector %llu, ws %llu, wp %u\n", (unsigned long long)target_sector, (unsigned long long)index, (unsigned long long)fs->table[index]->msector, (unsigned long long)vc->ws[wp], fs->table[index]->wp);
-			
-			*bdev = vc->vm[wp].dev->bdev;
-			*write_sector = n_msector + remainder;
-		}
-		else{
-			//printk("3. target_sector %llu, index %llu, mapped sector %llu, ws %llu, wp %u\n", (unsigned long long)target_sector, (unsigned long long)index, (unsigned long long)fs->table[index]->msector + remainder, (unsigned long long)vc->ws[wp], fs->table[index]->wp);
-			*bdev = vc->vm[fs->table[index]->wp].dev->bdev;
-			*write_sector = fs->table[index]->msector + remainder;
-		}
-	}*/
 	mutex_unlock(&vc->lock);
 
 	return fs->table[index];
