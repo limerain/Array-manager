@@ -545,11 +545,9 @@ inline struct gc_set* weathering_check(struct vm_c *vc){
 		gs->phase = 2;
 		gs->io_client = vc->io_client;
 		gs->lock = &vc->lock;
-		printk("gs_lock %p, vc_lock %p\n", gs->lock, &vc->lock);
 		gs->ptr_ovflw_size = 0;
 		gs->vms = vc->vms;
 
-		printk("point_targeting\n");
 		if(point_targeting(vc, gs) == 0){
 			vfree(gs->block_buffer);
 			gs->block_buffer = NULL;
@@ -558,7 +556,6 @@ inline struct gc_set* weathering_check(struct vm_c *vc){
 			return NULL;//failed point targeting
 		}
 
-		printk("gp_list_setting\n");
 		//gp_list's weight is judge to selecting pointer. policy is avoid to high weight
 		//target ptr is write intensive job. gc ptr is read intensive job.
 		vc->gp_list[gs->gp] = 3;//3 is garbage collecting...
@@ -837,7 +834,7 @@ static int bgrnd_job(struct dm_target *ti){
 		else if(vc->mig_flag == 0){//0 is wait
 			ssleep(1);
 		}
-		//msleep(1);
+		//msleep(10);///this is outer GC's delay setting
 	}
 	return 0;
 }
