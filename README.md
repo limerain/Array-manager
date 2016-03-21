@@ -12,12 +12,16 @@ v0.1은 기본적인 동작을 구현하였으며 아직 버그가 있습니다.
 아직은 LVM2의 소스 수정을 통해 Swan만의 생성 명령을 만들지 못했습니다.
 따라서 소스 코드명도 dm-stripe.c이며, 기존의 Stripe LVM을 생성하듯 만들어주시면 됩니다.
 다음은 예시입니다.
+```
 pvcreate /dev/sdb1
 pvcreate /dev/sdb2
 pvcreate /dev/sdc1
 pvcreate /dev/sdc2
 vgcreate Swan /dev/sdb1 /dev/sdb2 /dev/sdc1 /dev/sdc2
-lvcreate -i 4 -I 4 -L 40G -n Swan swan
+lvcreate -i 4 -I 4 -l 100%FREE -n Swan swan
+```
+`lvcreate -i N`
+에서 N은 SSD의 개수입니다.
 
 물리적으로 다른 SSD를 요구하며 2개 이상 요구되지만, 3개 이상이 최적입니다.
 2개일 때는 위와 같이 파티션을 반씩 나눠서 생성해주세요.
