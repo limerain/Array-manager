@@ -3,7 +3,7 @@ Swan is gaurantee maximum bandwidth of SSD Array(or set of SSDs)
 
 #한글/Korean
 Swan(가칭)는 다중 SSD환경을 고려하여 SSD들의 최대 대역폭을 보장해주는 관리 기법입니다.
-v0.1은 기본적인 동작을 구현하였으며 아직 버그가 있습니다.
+v0.x 버전은 기본적인 동작을 구현중이며 아직 버그가 있습니다.
 
 리눅스의 커널 버전에 크게 구애받지 않으며, dm-stripe.c 코드를
 /drivers/md/dm-stripe.c와 교체해주시면 됩니다.
