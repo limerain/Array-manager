@@ -42,3 +42,25 @@ fio의 랜덤 쓰기 테스트를 수행 시 600초 가량에서 알 수 없는 
 2. 재현율이 100%가 아닌 General Protection Fault 에러와 함께 실패합니다.
 
 #영어/English
+Swan is a manage to guaranteeing SSD's maximum bandwidth in many SSDs environment.
+version 0.x series are basic implementation versions.
+i'm implementing of basic feature, fix to bug, design new mechanism, and so on.
+then version is will up.
+
+this code is not cared linux kernel version.
+Swan code file name is dm-stripe.c
+it is a replace previously stripe(RAID-0) code. therefore after installed Swan, you can't use stripe.
+so construct Swan command is same to construct stripe.
+this is Example command.
+```
+pvcreate /dev/sda1
+pvcreate /dev/sdb1
+pvcreate /dev/sdb2
+vgcreate Swan /dev/sda1 /dev/sdb1 /dev/sdb2
+lvcreate -i 3 -I 4 -l 100%FREE -n Swan swan
+```
+N is a number of SSD in command `lvcreate -i N`
+
+if you have 2 SSDs, can create Swan by separte partition. but, optimal number is more than 3.
+
+Thnks for your interest.
