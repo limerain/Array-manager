@@ -18,7 +18,7 @@ pvcreate /dev/sdb2
 pvcreate /dev/sdc1
 pvcreate /dev/sdc2
 vgcreate Swan /dev/sdb1 /dev/sdb2 /dev/sdc1 /dev/sdc2
-lvcreate -i 4 -I 4 -l 100%FREE -n Swan swan
+lvcreate -i 4 -I 4 -l 100%FREE -n Swan Swan
 ```
 `lvcreate -i N`
 에서 N은 SSD의 개수입니다.
@@ -57,7 +57,7 @@ pvcreate /dev/sda1
 pvcreate /dev/sdb1
 pvcreate /dev/sdb2
 vgcreate Swan /dev/sda1 /dev/sdb1 /dev/sdb2
-lvcreate -i 3 -I 4 -l 100%FREE -n Swan swan
+lvcreate -i 3 -I 4 -l 100%FREE -n Swan Swan
 ```
 N is a number of SSD in command `lvcreate -i N`
 
