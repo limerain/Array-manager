@@ -14,17 +14,38 @@ v0.x 버전은 기본적인 동작을 구현중이며 아직 버그가 있습니
 다음은 예시입니다.
 ```
 pvcreate /dev/sdb1
-pvcreate /dev/sdb2
 pvcreate /dev/sdc1
-pvcreate /dev/sdc2
-vgcreate Swan /dev/sdb1 /dev/sdb2 /dev/sdc1 /dev/sdc2
+pvcreate /dev/sdd1
+pvcreate /dev/sde1
+vgcreate Swan /dev/sdb1 /dev/sdc1 /dev/sdd1 /dev/sde1
 lvcreate -i 4 -I 4 -l 100%FREE -n Swan Swan
 ```
 `lvcreate -i N`
 에서 N은 SSD의 개수입니다.
 
 물리적으로 다른 SSD를 요구하며 2개 이상 요구되지만, 3개 이상이 최적입니다.
-2개일 때는 위와 같이 파티션을 반씩 나눠서 생성해주세요.
+2개일 때는 아래와 같이 파티션을 반씩 나눠서 생성해주세요.
+```
+pvcreate /dev/sdb1
+pvcreate /dev/sdb2
+pvcreate /dev/sdc1
+pvcreate /dev/sdc2
+vgcreate Swan /dev/sdb1 /dev/sdb2 /dev/sdc1 /dev/sdc2
+lvcreate -i 4 -I 4 -l 100%FREE -n Swan Swan
+```
+
+코드 이해를 돕기 위해 Single Thread 버전을 backup branch로 남겨둡니다.
+Single Thread 코드가 약간 더 간단합니다.
+
+--v0.4--
+문제들이 발견되어 버그픽스가 이루어졌습니다.
+다중 쓰레드를 통해 oGC를 수행하며, 기존보다 oGC의 작업 속도가 단축되었습니다.
+I/O에서 잘못된 메타데이터 관리로 인해 4KB이상의 데이터데 대해 잘못 저장되는 문제를 해결했습니다.
+이 문제에 대해 아직 oGC Algorithm에서의 수정이 이루어지지 않아, 잘 안될 때가 있습니다.
+위의 수정사항은 벤치마크 툴에 대해서는 관계가 없습니다.
+Discard명령이 I/O수행하는것이 아니라 내부 매핑 테이블에서 Invalid화 시키는것으로 수정되었습니다.
+키질 코드가 수정되었습니다.
+Reverse 테이블의 관리가 잘못 되어있어서 수정했습니다.
 
 --v0.3--
 기존의 확인된 에러(중간에 다운되는) 버그를 모두 고쳤습니다.
