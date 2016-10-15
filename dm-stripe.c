@@ -87,6 +87,7 @@ struct vm {
 	sector_t end_sector;
 	unsigned int main_dev;
 	unsigned int maj_dev;
+	unsigned long long num_dirty;
 
 	atomic_t error_count;
 };
@@ -365,8 +366,11 @@ static int vm_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 		//unsigned long long r_table_size = (vc->vm[i].end_sector+7 - vc->vm[i].physical_start);
 		unsigned long long j;
 		unsigned long long r_table_size = (vc->vm[i].end_sector + 7);
+		unsigned long long phy_sect = vc->vm[i].physical_start;
+		do_div(phy_sect, 8);
 		do_div(r_table_size, 8);
 		printk("r_table_size = %llu\n", r_table_size);
+		vc->vm[i].num_dirty = r_table_size - phy_sect;
 		vc->fs->reverse_table[i] = vmalloc(sizeof(struct reverse_nodes) * r_table_size);
 		for(j=0; j<r_table_size; j++){
 			vc->fs->reverse_table[i][j].index = -1;
@@ -565,6 +569,7 @@ inline int do_kijil(struct vm_c* vc, int gp){
 inline char point_targeting(struct vm_c *vc, int *r_tp, int *r_gp){//r_tp, r_gp is return_tp, return gp
 	unsigned int tp, i, wp_main_dev, min, min_weight;
 	unsigned int wp_maj_dev;
+	unsigned long long percent_of_dirtied;// = vc->vm[gp].num_dirty - vc->d_num[gp] * 100;/////thisthis
 
 	for(i=0; i<vc->vms; i++){
 		if(vc->gp_list[i] == GC_Weight){
@@ -585,6 +590,11 @@ inline char point_targeting(struct vm_c *vc, int *r_tp, int *r_gp){//r_tp, r_gp 
 
 	for(i=0; i<vc->vms; i++){
 		unsigned weight = 0;
+
+		percent_of_dirtied = vc->vm[i].num_dirty - vc->d_num[i] * 100;
+		do_div(percent_of_dirtied, vc->vm[i].num_dirty);
+		printk("dirty ratio is %u\t", percent_of_dirtied);
+
 		tp = (tp + 1) % vc->vms;
 		if(vc->vm[tp].maj_dev == wp_maj_dev && vc->vm[tp].main_dev == wp_main_dev)
 			weight = 5;
@@ -597,6 +607,7 @@ inline char point_targeting(struct vm_c *vc, int *r_tp, int *r_gp){//r_tp, r_gp 
 		}
 		weight = 0;
 	}
+	printk("\n");
 	vc->gp_list[min] = Writed_Weight;///target pointer is 2
 	//printk("in ptr targeting, gp_list ++ %u\n", vc->gp_list[min]);
 	*r_tp = min;
@@ -609,15 +620,20 @@ inline char weathering_check(struct vm_c *vc){
 		unsigned int i;
 		unsigned int tp = 0, gp = 0;
 		unsigned long long kijil_size = 1;
+		unsigned long long percent_of_dirtied = vc->vm[gp].num_dirty - vc->d_num[gp] * 100;
 
-		printk("mig is start\n");
-
+		
 		if(point_targeting(vc, &tp, &gp) == 0)
 			return 0;
-		//gp_list's weight is judge to selecting pointer. policy is avoid to high weight
-		//target ptr is write intensive job. gc ptr is read intensive job.
-		//vc->gp_list[gp] = 3;//3 is garbage collecting...
-		//vc->gp_list[tp] = 4;//4 is targeting...
+
+		do_div(percent_of_dirtied, vc->vm[gp].num_dirty);
+		if(percent_of_dirtied <= 50) return 0;
+		else if(vc->vms - vc->num_gp <= 2){
+		}
+
+		printk("dirty_ratio is %llu\n", percent_of_dirtied);
+
+		printk("mig is start\n");
 
 		//printk("kijil\n");
 		//gs->reverse_table = vc->fs->reverse_table;
@@ -1093,20 +1109,25 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, struct bio* 
 			i=0;
 			do_div(dirtied_sector, 8);
 			
-			/*while(i < sectors){
+			while(i < sectors){
 				if(fs->reverse_table[dirtied_wp][dirtied_sector].size == -1)
 					break;
+				if(fs->reverse_table[dirtied_wp][dirtied_sector].dirty == 1){
+					i+=8; dirtied_sector++;
+					continue;
+				}
 				fs->reverse_table[dirtied_wp][dirtied_sector].dirty = 1;
 				vc->d_num[dirtied_wp]++;
 				i+= 8;
 				dirtied_sector++;
 			}///at this point, i = sectors
 
-			dirtied_sector-= i/8;///now, dirtied_sector is first bi_iter's physical_block
+			/*dirtied_sector-= i/8;///restore. dirtied_sector is first bi_iter's physical_block
 			if(i != fs->reverse_table[dirtied_wp][dirtied_sector].size){
 				unsigned int remained_size = fs->reverse_table[dirtied_wp][dirtied_sector].size - i;
 				sector_t remained_index = bio->bi_iter.bi_sector + i;
 				unsigned long long msector = fs->table[index]->msector + i;
+				printk("??? what is code?\n");
 				if(remained_size == -8){
 					printk("unknown remained_size error\n");
 					goto write_start;
@@ -1125,12 +1146,14 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, struct bio* 
 					fs->reverse_table[dirtied_wp][msector].index = remained_index;
 					i+= 8; msector++;
 				}
-			}*////give up
-			fs->reverse_table[dirtied_wp][dirtied_sector].dirty = 1;
-			vc->d_num[dirtied_wp]++;
+			}*///give up
+
+			//fs->reverse_table[dirtied_wp][dirtied_sector].dirty = 1;
+			//vc->d_num[dirtied_wp]++;
+
 			/*if(fs->reverse_table[dirtied_wp][dirtied_sector].size > 16){
 				unsigned int remained_size = fs->reverse_table[dirtied_wp][dirtied_sector].size - 8;
-				//sector_t remained_index = bio->bi_iter.bi_sector + 8;
+				sector_t remained_index = bio->bi_iter.bi_sector + 8;
 				unsigned long long msector = fs->table[index]->msector + 8;
 
 				if(remained_size == 8)
@@ -1176,7 +1199,7 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, struct bio* 
 			}
 			printk("\n");
 			if(min_weight != 0) vc->overload = 1;
-			if(second_weight == 1 && min_weight == 0) min = second;////////////if this condition, write pointer is yield cleaning SSD to GC job.
+			//if(second_weight == 1 && min_weight == 0) min = second;////////////if this condition, write pointer is yield cleaning SSD to GC job.
 			///////////
 
 			printk("big!! next wp is %d, %s\n", min, vc->vm[min].dev->name);
@@ -1301,13 +1324,18 @@ static int vm_map(struct dm_target *ti, struct bio *bio){
 			if(dirtied_sector != -1){
 				unsigned int dirtied_wp = vc->fs->table[index]->wp;
 				unsigned long long i=0;
+				unsigned int d_size = vc->fs->reverse_table[dirtied_wp][dirtied_sector].size;
 				do_div(dirtied_sector, 8);
 
-				while(i < vc->fs->reverse_table[dirtied_wp][dirtied_sector - (i/8)].size){
+				while(i < d_size){
 					if(i > 8)
 						printk("unknown dirty sector process error\n");
 					if(vc->fs->reverse_table[dirtied_wp][dirtied_sector].size == -1)
 						break;
+					if(vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty == 1){
+						i+= 8; dirtied_sector++;
+						continue;
+					}
 					vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty = 1;
 					vc->d_num[dirtied_wp]++;
 					i+= 8;
@@ -1322,6 +1350,8 @@ static int vm_map(struct dm_target *ti, struct bio *bio){
 		target_bio_nr = dm_bio_get_target_bio_nr(bio);
 		BUG_ON(target_bio_nr >= vc->vms);
 		return vm_map_range(vc, bio, target_bio_nr);
+	}
+	else if(unlikely(bio->bi_rw == 97)){
 	}
 
 	vm_lfs_map_bio(ti, bio);
