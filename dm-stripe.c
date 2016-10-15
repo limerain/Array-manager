@@ -1294,6 +1294,7 @@ static int vm_map(struct dm_target *ti, struct bio *bio){
 		unsigned long long index = bio->bi_iter.bi_sector;
 		do_div(index, 8);
 
+		printk("discard\n");
 		if(vc->fs->table[index]->msector == -1) printk("unknown discard's non index error\n");
 		else{
 			unsigned long long dirtied_sector = vc->fs->table[index]->msector;
