@@ -896,7 +896,7 @@ static int write_job(struct gc_set* gs){
 							vc->vm[gs->gp].end_sector - 1 - vc->vm[gs->gp].physical_start, GFP_NOFS, 0);
 					//discard is finished.
 					printk("dirty_num is %llu\n", vc->d_num[gs->gp]);
-					vc->d_num[gs->gp] = 0;
+					vc->d_num[gs->gp] = vc->vm[gs->gp].num_dirty;
 					printk("end discard\n");
 
 					if(gs->tp != gs->gp)
