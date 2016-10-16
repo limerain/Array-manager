@@ -362,8 +362,8 @@ static int vm_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	//vc->ws[0] += vc->num_map_block;
 
 	vc->fs->reverse_table = vmalloc(sizeof(struct reverse_nodes*) * vc->vms);
+	vc->d_num = kmalloc(sizeof(unsigned long long) * vc->vms, GFP_KERNEL);
 	for(i=0; i<vc->vms; i++){
-		//unsigned long long r_table_size = (vc->vm[i].end_sector+7 - vc->vm[i].physical_start);
 		unsigned long long j;
 		unsigned long long r_table_size = (vc->vm[i].end_sector + 7);
 		unsigned long long phy_sect = vc->vm[i].physical_start;
@@ -371,6 +371,7 @@ static int vm_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 		do_div(r_table_size, 8);
 		printk("r_table_size = %llu\n", r_table_size);
 		vc->vm[i].num_dirty = r_table_size - phy_sect;
+		vc->d_num[i] = vc->vm[i].num_dirty;
 		vc->fs->reverse_table[i] = vmalloc(sizeof(struct reverse_nodes) * r_table_size);
 		for(j=0; j<r_table_size; j++){
 			vc->fs->reverse_table[i][j].index = -1;
@@ -378,11 +379,6 @@ static int vm_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 			vc->fs->reverse_table[i][j].size = -1;
 		}
 		//printk("%u's first ptr is %p, final ptr is %p\n", i, &(vc->fs->reverse_table[i][0]), &(vc->fs->reverse_table[i][j]));
-	}
-
-	vc->d_num = kmalloc(sizeof(unsigned long long) * vc->vms, GFP_KERNEL);
-	for(i=0; i<vc->vms; i++){
-		vc->d_num[i] = 0;
 	}
 
 	for(i=0; i<vc->vms; i++){
@@ -571,18 +567,19 @@ inline char point_targeting(struct vm_c *vc, int *r_tp, int *r_gp){//r_tp, r_gp 
 	unsigned int wp_maj_dev;
 	unsigned long long percent_of_dirtied;// = vc->vm[gp].num_dirty - vc->d_num[gp] * 100;/////thisthis
 
-	for(i=0; i<vc->vms; i++){
-		if(vc->gp_list[i] == GC_Weight){
-			*r_gp = i;
-			break;
-		}
-		else if(i == vc->vms-1 && vc->gp_list[i] != GC_Weight){
-			printk("not gc ssd\n");
-			vc->mig_flag = 0;
-			return 0;
+	if(*r_gp == -1){
+		for(i=0; i<vc->vms; i++){
+			if(vc->gp_list[i] == GC_Weight){
+				*r_gp = i;
+				break;
+			}
+			else if(i == vc->vms-1 && vc->gp_list[i] != GC_Weight){
+				printk("no existence gc ssd\n");
+				vc->mig_flag = 0;
+				return 0;
+			}
 		}
 	}
-	//tp = gs->gp;
 	tp = *r_gp;
 	wp_main_dev = vc->vm[vc->wp].main_dev;
 	wp_maj_dev = vc->vm[vc->wp].maj_dev;
@@ -591,9 +588,9 @@ inline char point_targeting(struct vm_c *vc, int *r_tp, int *r_gp){//r_tp, r_gp 
 	for(i=0; i<vc->vms; i++){
 		unsigned weight = 0;
 
-		percent_of_dirtied = vc->vm[i].num_dirty - vc->d_num[i] * 100;
+		percent_of_dirtied = (vc->vm[i].num_dirty - vc->d_num[i]) * 100;
 		do_div(percent_of_dirtied, vc->vm[i].num_dirty);
-		printk("dirty ratio is %u\t", percent_of_dirtied);
+		printk("%u's valid ratio is %u\t", i, percent_of_dirtied);
 
 		tp = (tp + 1) % vc->vms;
 		if(vc->vm[tp].maj_dev == wp_maj_dev && vc->vm[tp].main_dev == wp_main_dev)
@@ -618,19 +615,35 @@ inline char point_targeting(struct vm_c *vc, int *r_tp, int *r_gp){//r_tp, r_gp 
 inline char weathering_check(struct vm_c *vc){
 	if(vc->num_gp >= 1){
 		unsigned int i;
-		unsigned int tp = 0, gp = 0;
+		unsigned int tp = 0, gp = -1;
 		unsigned long long kijil_size = 1;
-		unsigned long long percent_of_dirtied = vc->vm[gp].num_dirty - vc->d_num[gp] * 100;
+		unsigned long long percent_of_dirtied;
 
 		
 		if(point_targeting(vc, &tp, &gp) == 0)
 			return 0;
 
-		do_div(percent_of_dirtied, vc->vm[gp].num_dirty);
-		if(percent_of_dirtied <= 50) return 0;
-		else if(vc->vms - vc->num_gp <= 2){
+		if(vc->vms - vc->num_gp <= 2){
+			unsigned int min = 0;
+			unsigned int min_percent = 100;
+			printk("vms is %u, num_gp is %u\n", vc->vms, vc->num_gp);
+			for(i=0; i<vc->vms; i++){
+				if(vc->gp_list[i] != GC_Weight) continue;
+				percent_of_dirtied = (vc->vm[i].num_dirty - vc->d_num[i]) * 100;
+				do_div(percent_of_dirtied, vc->vm[i].num_dirty);
+				if(percent_of_dirtied < min_percent){
+					min = i; min_percent = percent_of_dirtied;
+				}
+			}
+			gp = min;
+			if(point_targeting(vc, &tp, &gp) == 0)
+				return 0;
 		}
-
+		else if(percent_of_dirtied <= 50){
+			return 0;
+		}
+		percent_of_dirtied = (vc->vm[gp].num_dirty - vc->d_num[gp]) * 100;
+		do_div(percent_of_dirtied, vc->vm[gp].num_dirty);
 		printk("dirty_ratio is %llu\n", percent_of_dirtied);
 
 		printk("mig is start\n");
@@ -883,7 +896,7 @@ static int write_job(struct gc_set* gs){
 							vc->vm[gs->gp].end_sector - 1 - vc->vm[gs->gp].physical_start, GFP_NOFS, 0);
 					//discard is finished.
 					printk("dirty_num is %llu\n", vc->d_num[gs->gp]);
-					vc->d_num[gs->gp] = 0;
+					vc->d_num[gs->gp] = vc->vm[gs->gp].num_dirty;
 					printk("end discard\n");
 
 					if(gs->tp != gs->gp)
@@ -1064,7 +1077,7 @@ static int vm_map_range(struct vm_c *vc, struct bio *bio,
 		return DM_MAPIO_REMAPPED;
 	} else {
 		// The range doesn't map to the target stripe 
-		bio_endio(bio, NULL);
+		bio_endio(bio);
 		return DM_MAPIO_SUBMITTED;
 	}
 }
@@ -1230,7 +1243,7 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, struct bio* 
 			fs->reverse_table[vc->wp][phy_sector].index = cur_index;
 			fs->reverse_table[vc->wp][phy_sector].dirty = 0;
 			
-			i+= 8; phy_sector++; cur_index++; cur_ws+= 8;
+			i+= 8; phy_sector++; cur_index++; cur_ws+= 8; vc->d_num[vc->wp]--;
 		}
 
 		/*fs->reverse_table[vc->wp][phy_sector].size = sectors;/////this is record only first phy_sector
@@ -1352,7 +1365,8 @@ static int vm_map(struct dm_target *ti, struct bio *bio){
 		BUG_ON(target_bio_nr >= vc->vms);
 		return vm_map_range(vc, bio, target_bio_nr);
 	}
-	else if(unlikely(bio->bi_rw == 97)){
+	else {
+		//printk("bi_rw %lu\n", bio->bi_rw);
 	}
 
 	vm_lfs_map_bio(ti, bio);
