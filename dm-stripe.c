@@ -129,124 +129,6 @@ struct vm_c {
 	struct vm vm[0];
 };
 
-struct ext4_super_block {
-/*00*/	__le32	s_inodes_count;		/* Inodes count */
-	__le32	s_blocks_count_lo;	/* Blocks count */
-	__le32	s_r_blocks_count_lo;	/* Reserved blocks count */
-	__le32	s_free_blocks_count_lo;	/* Free blocks count */
-/*10*/	__le32	s_free_inodes_count;	/* Free inodes count */
-	__le32	s_first_data_block;	/* First Data Block */
-	__le32	s_log_block_size;	/* Block size */
-	__le32	s_log_cluster_size;	/* Allocation cluster size */
-/*20*/	__le32	s_blocks_per_group;	/* # Blocks per group */
-	__le32	s_clusters_per_group;	/* # Clusters per group */
-	__le32	s_inodes_per_group;	/* # Inodes per group */
-	__le32	s_mtime;		/* Mount time */
-/*30*/	__le32	s_wtime;		/* Write time */
-	__le16	s_mnt_count;		/* Mount count */
-	__le16	s_max_mnt_count;	/* Maximal mount count */
-	__le16	s_magic;		/* Magic signature */
-	__le16	s_state;		/* File system state */
-	__le16	s_errors;		/* Behaviour when detecting errors */
-	__le16	s_minor_rev_level;	/* minor revision level */
-/*40*/	__le32	s_lastcheck;		/* time of last check */
-	__le32	s_checkinterval;	/* max. time between checks */
-	__le32	s_creator_os;		/* OS */
-	__le32	s_rev_level;		/* Revision level */
-/*50*/	__le16	s_def_resuid;		/* Default uid for reserved blocks */
-	__le16	s_def_resgid;		/* Default gid for reserved blocks */
-	/*
-	 * These fields are for EXT4_DYNAMIC_REV superblocks only.
-	 *
-	 * Note: the difference between the compatible feature set and
-	 * the incompatible feature set is that if there is a bit set
-	 * in the incompatible feature set that the kernel doesn't
-	 * know about, it should refuse to mount the filesystem.
-	 *
-	 * e2fsck's requirements are more strict; if it doesn't know
-	 * about a feature in either the compatible or incompatible
-	 * feature set, it must abort and not try to meddle with
-	 * things it doesn't understand...
-	 */
-	__le32	s_first_ino;		/* First non-reserved inode */
-	__le16  s_inode_size;		/* size of inode structure */
-	__le16	s_block_group_nr;	/* block group # of this superblock */
-	__le32	s_feature_compat;	/* compatible feature set */
-/*60*/	__le32	s_feature_incompat;	/* incompatible feature set */
-	__le32	s_feature_ro_compat;	/* readonly-compatible feature set */
-/*68*/	__u8	s_uuid[16];		/* 128-bit uuid for volume */
-/*78*/	char	s_volume_name[16];	/* volume name */
-/*88*/	char	s_last_mounted[64];	/* directory where last mounted */
-/*C8*/	__le32	s_algorithm_usage_bitmap; /* For compression */
-	/*
-	 * Performance hints.  Directory preallocation should only
-	 * happen if the EXT4_FEATURE_COMPAT_DIR_PREALLOC flag is on.
-	 */
-	__u8	s_prealloc_blocks;	/* Nr of blocks to try to preallocate*/
-	__u8	s_prealloc_dir_blocks;	/* Nr to preallocate for dirs */
-	__le16	s_reserved_gdt_blocks;	/* Per group desc for online growth */
-	/*
-	 * Journaling support valid if EXT4_FEATURE_COMPAT_HAS_JOURNAL set.
-	 */
-/*D0*/	__u8	s_journal_uuid[16];	/* uuid of journal superblock */
-/*E0*/	__le32	s_journal_inum;		/* inode number of journal file */
-	__le32	s_journal_dev;		/* device number of journal file */
-	__le32	s_last_orphan;		/* start of list of inodes to delete */
-	__le32	s_hash_seed[4];		/* HTREE hash seed */
-	__u8	s_def_hash_version;	/* Default hash version to use */
-	__u8	s_jnl_backup_type;
-	__le16  s_desc_size;		/* size of group descriptor */
-/*100*/	__le32	s_default_mount_opts;
-	__le32	s_first_meta_bg;	/* First metablock block group */
-	__le32	s_mkfs_time;		/* When the filesystem was created */
-	__le32	s_jnl_blocks[17];	/* Backup of the journal inode */
-	/* 64bit support valid if EXT4_FEATURE_COMPAT_64BIT */
-/*150*/	__le32	s_blocks_count_hi;	/* Blocks count */
-	__le32	s_r_blocks_count_hi;	/* Reserved blocks count */
-	__le32	s_free_blocks_count_hi;	/* Free blocks count */
-	__le16	s_min_extra_isize;	/* All inodes have at least # bytes */
-	__le16	s_want_extra_isize; 	/* New inodes should reserve # bytes */
-	__le32	s_flags;		/* Miscellaneous flags */
-	__le16  s_raid_stride;		/* RAID stride */
-	__le16  s_mmp_update_interval;  /* # seconds to wait in MMP checking */
-	__le64  s_mmp_block;            /* Block for multi-mount protection */
-	__le32  s_raid_stripe_width;    /* blocks on all data disks (N*stride)*/
-	__u8	s_log_groups_per_flex;  /* FLEX_BG group size */
-	__u8	s_checksum_type;	/* metadata checksum algorithm used */
-	__u8	s_encryption_level;	/* versioning level for encryption */
-	__u8	s_reserved_pad;		/* Padding to next 32bits */
-	__le64	s_kbytes_written;	/* nr of lifetime kilobytes written */
-	__le32	s_snapshot_inum;	/* Inode number of active snapshot */
-	__le32	s_snapshot_id;		/* sequential ID of active snapshot */
-	__le64	s_snapshot_r_blocks_count; /* reserved blocks for active
-					      snapshot's future use */
-	__le32	s_snapshot_list;	/* inode number of the head of the
-					   on-disk snapshot list */
-#define EXT4_S_ERR_START offsetof(struct ext4_super_block, s_error_count)
-	__le32	s_error_count;		/* number of fs errors */
-	__le32	s_first_error_time;	/* first time an error happened */
-	__le32	s_first_error_ino;	/* inode involved in first error */
-	__le64	s_first_error_block;	/* block involved of first error */
-	__u8	s_first_error_func[32];	/* function where the error happened */
-	__le32	s_first_error_line;	/* line number where error happened */
-	__le32	s_last_error_time;	/* most recent time of an error */
-	__le32	s_last_error_ino;	/* inode involved in last error */
-	__le32	s_last_error_line;	/* line number where error happened */
-	__le64	s_last_error_block;	/* block involved of last error */
-	__u8	s_last_error_func[32];	/* function where the error happened */
-#define EXT4_S_ERR_END offsetof(struct ext4_super_block, s_mount_opts)
-	__u8	s_mount_opts[64];
-	__le32	s_usr_quota_inum;	/* inode for tracking user quota */
-	__le32	s_grp_quota_inum;	/* inode for tracking group quota */
-	__le32	s_overhead_clusters;	/* overhead blocks/clusters in fs */
-	__le32	s_backup_bgs[2];	/* groups with sparse_super2 SBs */
-	__u8	s_encrypt_algos[4];	/* Encryption algorithms in use  */
-	__u8	s_encrypt_pw_salt[16];	/* Salt used for string2key algorithm */
-	__le32	s_lpf_ino;		/* Location of the lost+found inode */
-	__le32	s_reserved[100];	/* Padding to the end of the block */
-	__le32	s_checksum;		/* crc32c(superblock) */
-};
-
 static int read_job(struct gc_set *);
 static int write_job(struct gc_set *);
 /*static struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, sector_t target_sector,
@@ -492,7 +374,7 @@ static int vm_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 		vc->fs->reverse_table[i] = vmalloc(sizeof(struct reverse_nodes) * r_table_size);
 		for(j=0; j<r_table_size; j++){
 			vc->fs->reverse_table[i][j].index = -1;
-			vc->fs->reverse_table[i][j].dirty = 1;
+			vc->fs->reverse_table[i][j].dirty = 1;///1 is clean
 			//vc->fs->reverse_table[i][j].size = -1;
 		}
 		//printk("%u's first ptr is %p, final ptr is %p\n", i, &(vc->fs->reverse_table[i][0]), &(vc->fs->reverse_table[i][j]));
@@ -528,11 +410,6 @@ static int vm_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	}
 	vc->gc_flag = 0;
 
-	/*for(i=0; i<vc->vms; i++){///all discard
-		int err = blkdev_issue_discard(vc->vm[i].dev->bdev,
-				vc->vm[i].physical_start, vc->vm[i].end_sector-1 - vc->vm[i].physical_start, GFP_NOFS, 0);
-	}*/
-	//struct request_queue *q  = bdev_get_queue(bdev);
 	ti->discards_supported = true;
 	
 	return 0;
@@ -584,7 +461,7 @@ static void vm_dtr(struct dm_target *ti)
 }
 
 inline int do_kijil(struct vm_c* vc, int gp){
-	unsigned long long disk_block_size = vc->vm[gp].end_sector+7 - vc->vm[gp].physical_start;//initialize for do_div
+	unsigned long long disk_block_size = vc->vm[gp].end_sector+7;//initialize for do_div
 	signed char num_count = 0;
 	unsigned long long i = 0;
 	char* kijil_map = vmalloc(disk_block_size);
@@ -592,7 +469,8 @@ inline int do_kijil(struct vm_c* vc, int gp){
 	int kijil_size = 0;
 
 	do_div(disk_block_size, 8);
-	///why kijil grain is 1 byte?? more coars grain??
+	///why kijil grain is 1 byte?? can more coars grain??
+
 	//printk("rv table print start\n");
 	//for(i=0; i<disk_block_size; i++){
 	//	printk("%llu:%u ", i, gp_reverse_table[i].dirty);
@@ -600,17 +478,9 @@ inline int do_kijil(struct vm_c* vc, int gp){
 	//		printk("\n");
 	//}
 	//printk("rv table print end\n");
-	/*i = vc->vm[gp].physical_start;
-	do_div(i, 8);
-	j=i; remainder = do_div(j, 127);
-	printk("physical start 'j' is %llu\n", j);
-	for(temp = 0;temp < j; temp++){
-		kijil_map[kijil_size] = -127;
-		kijil_size++;
-	}*/
 
 	if(gp_reverse_table[i].dirty == 0)		num_count = 1;
-	else if(gp_reverse_table[i].dirty == 1)	num_count = -1;
+	else if(gp_reverse_table[i].dirty >= 1)	num_count = -1;
 	for(i=1; i<disk_block_size; i++){///already check 0 index, modified to (i=0)
 		if(num_count > 0){
 			if(num_count == 127){//range over
@@ -631,7 +501,7 @@ inline int do_kijil(struct vm_c* vc, int gp){
 				kijil_size++;
 				num_count = 0;
 			}
-			if(gp_reverse_table[i].dirty == 1) num_count--;//continuous invalid blk
+			if(gp_reverse_table[i].dirty >= 1) num_count--;//continuous invalid blk
 			else{//invalid is end
 				kijil_map[kijil_size] = num_count;
 				kijil_size++;
@@ -641,25 +511,8 @@ inline int do_kijil(struct vm_c* vc, int gp){
 		else printk("unknown else error\n");
 	}
 	kijil_map[kijil_size++] = num_count;
-	/*kijil_size = 0;
-	for(i=0; i<disk_block_size; i++){
-		//if(gp_reverse_table[i].size == -1){
-		//	printk("??in kijil, size error...sector %llu\n", i);
-		//}
-		printk("sector dirty %u, sector size %u, kijil_size %d, sector %llu, disk_size %llu\n", gp_reverse_table[i].dirty,
-				gp_reverse_table[i].size, kijil_size, i, disk_block_size);
-		if(gp_reverse_table[i].dirty == 0){//this is valid data
-			kijil_map[kijil_size] = gp_reverse_table[i].size;
-		}
-		else{//this is dirty data
-			kijil_map[kijil_size] = -(gp_reverse_table[i].size);
-		}
-		kijil_size++;
-		i+= gp_reverse_table[i].size;
-	}//*/
-	//printk("kijil_loop_end\n");
 	//end doing kijil
-	//printk("\n");
+
 	//for(i=0; i<kijil_size; i++){//Printing kijil_map
 	//	if(kijil_map[i] <0)
 	//		printk("%llu:%d ", i, kijil_map[i]);
@@ -682,7 +535,7 @@ inline int do_kijil(struct vm_c* vc, int gp){
 inline char point_targeting(struct vm_c *vc, int *r_tp, int *r_gp){//r_tp, r_gp is return_tp, return gp
 	unsigned int tp, i, wp_main_dev, min, min_weight;
 	unsigned int wp_maj_dev;
-	unsigned long long percent_of_dirtied;// = vc->vm[gp].num_dirty - vc->d_num[gp] * 100;/////thisthis
+	unsigned long long percent_of_dirtied;
 
 	if(*r_gp == -1){
 		for(i=0; i<vc->vms; i++){
@@ -759,29 +612,6 @@ inline char weathering_check(struct vm_c *vc){
 		}
 		else if(percent_of_dirtied <= 50){
 			printk("not yet\n");
-			/*char* data_mem = (char*) vmalloc(4096);
-			struct dm_io_region sb_io;
-			unsigned int sb_wp = vc->fs->table[0]->wp;
-			unsigned long long sb_sector = vc->fs->table[0]->msector;
-			struct ext4_super_block* es;
-			struct dm_io_request sb_io_req;
-			
-			sb_io_req.bi_rw = READ; sb_io_req.mem.type = DM_IO_VMA; sb_io_req.mem.ptr.vma = data_mem;
-			sb_io_req.notify.fn = NULL;
-			sb_io_req.client = vc->io_client;
-			
-			if(sb_sector != -1){
-				sb_io.bdev = vc->vm[sb_wp].dev->bdev;
-				sb_io.sector = sb_sector + 2;///??????
-				sb_io.count = 8;
-				
-				//printk("super block is located at %u's %llu\n", sb_wp, sb_sector);
-				dm_io(&sb_io_req, 1, &sb_io, NULL);
-				
-				es = data_mem;
-				//printk("s_magic is %d, first_data_block %llu, block's count %llu\n", le16_to_cpu(es->s_magic), le32_to_cpu(es->s_first_data_block), le32_to_cpu(es->s_blocks_count_hi)<<32 | le32_to_cpu(es->s_blocks_count_lo));
-			}
-			vfree(data_mem);*/
 			return 0;
 		}
 		percent_of_dirtied = (vc->vm[gp].num_dirty - vc->d_num[gp]) * 100;
@@ -791,7 +621,6 @@ inline char weathering_check(struct vm_c *vc){
 		printk("mig is start\n");
 
 		//printk("kijil\n");
-		//gs->reverse_table = vc->fs->reverse_table;
 		kijil_size = do_kijil(vc, gp);////kijil_mapping
 
 		for(i=0; i<gc_buffer_size; i++){
@@ -805,7 +634,7 @@ inline char weathering_check(struct vm_c *vc){
 		}
 
 		vc->read_index = 0;
-		vc->cur_sector = vc->vm[gp].physical_start;
+		vc->cur_sector = 0;
 		printk("gp_count %u, gp %u, tp %u, kijil_size %llu\n", vc->num_gp, gp, tp, kijil_size);
 		return 1;
 	}
@@ -879,13 +708,13 @@ static int write_job(struct gc_set* gs){
 				tp_reverse_table = vc->fs->reverse_table[gs->tp];
 				gp_reverse_table = vc->fs->reverse_table[gs->gp];
 				write_index = 0;
-				cur_sector = vc->vm[gs->tp].physical_start;
+				cur_sector = 0;
 				while(1){//...this condition is ... may have problem... 
 					if(gs->phase_flag == 1){//write is able.
 						struct buf_set *c_bs = gs->bs;
 						unsigned long long g_tis;
 						size = gs->kijil_map[c_bs->index];
-						cur_sector = c_bs->sector - vc->vm[gs->gp].physical_start;
+						cur_sector = c_bs->sector;
 						gs->tp_table_size = vc->vm[gs->tp].end_sector + 7;
 						do_div(cur_sector, 8);
 
@@ -932,12 +761,10 @@ static int write_job(struct gc_set* gs){
 								}
 								tp_reverse_table[g_tis + i].index = gp_reverse_table[cur_sector + i].index;
 								tp_reverse_table[g_tis + i].dirty = gp_reverse_table[cur_sector + i].dirty;
-								//gp_reverse_table[cur_sector + i].dirty = 1;
-								//gp_reverse_table[cur_sector + i].index = -1;
 
 								//if(gs->set_num == 0) printk("0's index %llu's write sector %llu, index %llu\n", c_bs->index, (cur_sector + i) * 8, gp_reverse_table[cur_sector + i].index);
 								vc->ws[gs->tp] += 8;
-								if(tp_reverse_table[g_tis+i].dirty == 0) vc->d_num[gs->tp]--;
+								if(tp_reverse_table[g_tis+i].dirty != 1) vc->d_num[gs->tp]--;
 							}
 						}mutex_unlock(&vc->lock);
 
@@ -1007,10 +834,7 @@ static int write_job(struct gc_set* gs){
 									wait_flag = 2;// flag is at least one of not ended-SSD is exist.
 								}
 							}
-							/*if(i == gc_buffer_size && vc->gs[gc_buffer_size-1].phase_flag == -2){
-								//is a all -2
-								wait_flag = 0;
-							}*/
+
 							if(wait_flag == 2) wait_flag = 1;
 							else wait_flag = 0;
 						}
@@ -1089,14 +913,6 @@ static int write_job(struct gc_set* gs){
 	return 0;
 }
 
-static void r_callback(unsigned long error, void* context){
-	//struct ext4_super_block *es = context;
-
-	//printk("s_magic is %d\n", le16_to_cpu(es->s_magic));
-
-	return;
-}
-
 static int read_job(struct gc_set *gs){
 	struct dm_target *ti = gs->ti;
 	struct vm_c *vc = ti->private;
@@ -1113,7 +929,6 @@ static int read_job(struct gc_set *gs){
 		if(vc->mig_flag == 1){
 			if(gs->kijil_map != NULL && vc->gc_flag & 1){
 				if(gs->phase_flag == -1){
-					//printk("read initial\n");
 					gs->phase_flag = 0;//phase_flag initialize, flag 0 is read phase
 					read_index = 0;
 					cur_sector = 0;
@@ -1199,30 +1014,6 @@ static int read_job(struct gc_set *gs){
 					printk("%u's valid ratio is %llu\t", i, percent_of_dirtied);
 				}
 				printk("\n");
-
-				/*char* data_mem = (char*) vmalloc(4096);
-				struct dm_io_region sb_io;
-				unsigned int sb_wp = vc->fs->table[0]->wp;
-				unsigned long long sb_sector = vc->fs->table[0]->msector;
-				struct ext4_super_block* es;
-				struct dm_io_request sb_io_req;
-
-				sb_io_req.bi_rw = READ; sb_io_req.mem.type = DM_IO_VMA; sb_io_req.mem.ptr.vma = data_mem;
-				sb_io_req.notify.fn = NULL;
-				sb_io_req.client = vc->io_client;
-
-				if(sb_sector != -1){
-					sb_io.bdev = vc->vm[sb_wp].dev->bdev;
-					sb_io.sector = sb_sector + 2;///??????
-					sb_io.count = 8;
-
-					//printk("super block is located at %u's %llu\n", sb_wp, sb_sector);
-					dm_io(&sb_io_req, 1, &sb_io, NULL);
-					
-					es = data_mem;
-					//printk("s_magic is %d, first_data_block %llu, block's count %llu\n", le16_to_cpu(es->s_magic), le32_to_cpu(es->s_first_data_block),	le32_to_cpu(es->s_blocks_count_hi)<<32 | le32_to_cpu(es->s_blocks_count_lo));
-				}
-				vfree(data_mem);*/
 			}
 			ssleep(1);
 		}
@@ -1282,7 +1073,6 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, struct bio* 
 	unsigned long bi_rw = bio_rw(bio);
 	remainder = do_div(index, 8);
 
-	//if(index == 0)	if(bio_sectors(bio) != 8)	printk("access Super Block. io is %lu, size %u, index %llu, sector %llu\n", bi_rw, bio_sectors(bio), index, bio->bi_iter.bi_sector);
 	//printk("access! io is %lu, size %u, wp %u, index %llu, sector %llu\n", bi_rw, bio_sectors(bio), fs->table[index]->wp, index, bio->bi_iter.bi_sector);
 	if(bi_rw == WRITE){
 		unsigned long long dirtied_sector = fs->table[index]->msector;
@@ -1291,7 +1081,7 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, struct bio* 
 		unsigned long long phy_sector;
 		unsigned long long cur_ws, cur_index;
 
-		/*char* addr;////...thisthisthis
+		/*char* addr;////it is print contents of page in BIO code(for debugging)
 
 		addr = phys_to_virt(page_to_pfn(bio->bi_io_vec->bv_page)<<PAGE_SHIFT);
 		printk("write buffer(len is %u) contents is : \n", bio->bi_io_vec->bv_len);
@@ -1309,7 +1099,6 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, struct bio* 
 			unsigned long long dindex = index;
 			i=0;
 			
-			//printk("over written!\n");
 			while(i<sectors){
 				dirtied_wp = fs->table[dindex]->wp;
 				dirtied_sector = fs->table[dindex]->msector;
@@ -1320,10 +1109,8 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, struct bio* 
 						i+=8; dindex++;
 						continue;
 					}
-					fs->reverse_table[dirtied_wp][dirtied_sector].dirty = 1;
+					fs->reverse_table[dirtied_wp][dirtied_sector].dirty = 2;///2 is invalid
 					vc->d_num[dirtied_wp]++;
-
-					//fs->table[dindex]->msector = -1; fs->table[dindex]->wp = -1;////why this code is problem?
 				}
 				i+= 8; dindex++;
 			}
@@ -1360,13 +1147,10 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, struct bio* 
 			}
 			printk("\n");
 			if(min_weight != 0) vc->overload = 1;
-			//if(second_weight == 1 && min_weight == 0) min = second;////////////if this condition, write pointer is yield cleaning SSD to GC job.
-			///////////
 
 			printk("big!! next wp is %d, %s\n", min, vc->vm[min].dev->name);
 			vc->wp = min;
 			vc->gp_list[vc->wp] = Writed_Weight;//write ptr
-			//printk("in mapping, gp_list %u\n", vc->gp_list[vc->wp]);
 			if(vc->mig_flag == 0) vc->mig_flag = 1;
 		}
 
@@ -1382,20 +1166,17 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, struct bio* 
 		do_div(phy_sector, 8);
 		//printk("i %u, sectors %u, wp %u, index %llu, msector %llu, psector %llu\n", i, sectors, vc->wp, index, fs->table[index]->msector, phy_sector);
 
-		//fs->reverse_table[vc->wp][phy_sector].size = sectors;////this is record in all phy_sector
 		while(i < sectors){////this is fully record in map table
 			fs->table[cur_index]->wp = fs->table[index]->wp;
 			fs->table[cur_index]->msector = cur_ws;
 
-			//fs->reverse_table[vc->wp][phy_sector].size = sectors - i;
 			fs->reverse_table[vc->wp][phy_sector].index = cur_index;
 			fs->reverse_table[vc->wp][phy_sector].dirty = 0;
 			
 			i+= 8; phy_sector++; cur_index++; cur_ws+= 8; vc->d_num[vc->wp]--;
 		}
 
-		/*fs->reverse_table[vc->wp][phy_sector].size = sectors;/////this is record only first phy_sector
-		fs->reverse_table[vc->wp][phy_sector].index = index;
+		/*fs->reverse_table[vc->wp][phy_sector].index = index;
 		fs->reverse_table[vc->wp][phy_sector].dirty = 0;*/
 
 		bio->bi_bdev = vc->vm[vc->wp].dev->bdev;
@@ -1413,7 +1194,7 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, struct bio* 
 		}
 		else{
 			//char *buf = (char *) vmalloc(bio->bi_io_vec->bv_len);
-			/*char *buf = (char*) vmalloc(4096);
+			/*char *buf = (char*) vmalloc(4096);///////it is print some contents of page in SSD code
 			struct dm_io_region io;
 			struct dm_io_request io_req;
 			
@@ -1483,28 +1264,20 @@ static int vm_map(struct dm_target *ti, struct bio *bio){
 		unsigned long long dirtied_sector;
 		unsigned int dirtied_wp;
 
-		//printk("in discard\n");
-		//if(vc->fs->table[index]->msector == -1) printk("unknown discard's non index error\n");
-		//else{
-
 		//printk("TRIM! io is %lu, size %u, wp %u, remainder %u, index %llu, sector %llu\n", bi_rw, bio_sectors(bio), vc->fs->table[index]->wp, remainder, index, bio->bi_iter.bi_sector);
-		//if(remainder != 0) printk("size %u, remainder %u, index %llu, sectors %llu\n", bio_sectors(bio), remainder, index, bio->bi_iter.bi_sector);
-		///no remainder.
 		remainder = do_div(index, 8);
 
 		while(i<sectors){
-			//printk("i %u, sectors %u\n", i, sectors);
 			dirtied_sector = vc->fs->table[index]->msector;
 			dirtied_wp = vc->fs->table[index]->wp;
 
-			if(dirtied_wp == 1) printk("%u's index %llu, dirtied_sector is %llu\n", dirtied_wp, index, dirtied_sector);
 			if(dirtied_sector != -1){
 				do_div(dirtied_sector, 8);
 				if(vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty == 1){
 					i+= 8; index++;
 					continue;
 				}
-				vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty = 1;
+				vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty = 2;///2 is invalid;
 				vc->d_num[dirtied_wp]++;
 
 				vc->fs->table[index]->msector = -1;	vc->fs->table[index]->wp = -1;
@@ -1551,7 +1324,6 @@ static void vm_status(struct dm_target *ti, status_type_t type,
 	unsigned int sz = 0;
 	unsigned int i;
 
-	//printk("vm_status\n");
 	switch (type) {
 	case STATUSTYPE_INFO:
 		DMEMIT("%d ", vc->vms);
