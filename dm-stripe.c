@@ -29,9 +29,10 @@
 #define minor_shift 4
 #define num_flag_per_page (4096/sizeof(struct flag_nodes))
 #define gc_buffer_size 50
-#define GC_Weight 3
-#define Writed_Weight 2
-#define Targeted_Weight 1
+#define GC_Weight 4
+#define Targeted_Weight 3
+#define Writing_Weight 2
+#define Writed_Weight 1
 #define Clean_Weight 0
 #define winnowing 0
 
@@ -328,6 +329,7 @@ static int vm_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	vc->overload = 0;
 	for(i=0; i<vc->vms; i++)
 		vc->gp_list[i] = Clean_Weight;//0 is clean
+	vc->gp_list[vc->wp] = Writing_Weight;// first write ptr is already selected.
 	{
 		unsigned long long tem, disk_size;
 		
@@ -375,7 +377,6 @@ static int vm_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 		for(j=0; j<r_table_size; j++){
 			vc->fs->reverse_table[i][j].index = -1;
 			vc->fs->reverse_table[i][j].dirty = 1;///1 is clean
-			//vc->fs->reverse_table[i][j].size = -1;
 		}
 		//printk("%u's first ptr is %p, final ptr is %p\n", i, &(vc->fs->reverse_table[i][0]), &(vc->fs->reverse_table[i][j]));
 	}
@@ -555,13 +556,16 @@ inline char point_targeting(struct vm_c *vc, int *r_tp, int *r_gp){//r_tp, r_gp 
 	wp_maj_dev = vc->vm[vc->wp].maj_dev;
 	min = tp; min_weight = -1;
 
+	vc->num_gp = 0;////num_gp is counting now.
 	for(i=0; i<vc->vms; i++){
 		unsigned weight = 0;
 
 		percent_of_dirtied = (vc->vm[i].num_dirty - vc->d_num[i]) * 100;
 		do_div(percent_of_dirtied, vc->vm[i].num_dirty);
-		printk("%u's valid ratio is %llu\t", i, percent_of_dirtied);
+		printk("%u's(%u) valid ratio is %llu\t", i, vc->gp_list[i], percent_of_dirtied);
 
+		if(vc->gp_list[i] == GC_Weight && percent_of_dirtied != 0)
+			vc->num_gp++;
 		tp = (tp + 1) % vc->vms;
 		if(vc->vm[tp].maj_dev == wp_maj_dev && vc->vm[tp].main_dev == wp_main_dev)
 			weight = 5;
@@ -575,7 +579,7 @@ inline char point_targeting(struct vm_c *vc, int *r_tp, int *r_gp){//r_tp, r_gp 
 		weight = 0;
 	}
 	printk("\n");
-	vc->gp_list[min] = Writed_Weight;///target pointer is 2
+	vc->gp_list[min] = Targeted_Weight;///target pointer is 2
 	//printk("in ptr targeting, gp_list ++ %u\n", vc->gp_list[min]);
 	*r_tp = min;
 	
@@ -588,30 +592,39 @@ inline char weathering_check(struct vm_c *vc){
 		unsigned int tp = 0, gp = -1;
 		unsigned long long kijil_size = 1;
 		unsigned long long percent_of_dirtied = 0;
+		unsigned int min = 0;
+		unsigned int min_percent = 100;
 
-		if(point_targeting(vc, &tp, &gp) == 0)
+		if(point_targeting(vc, &tp, &gp) == 0){
+			if(vc->gp_list[tp] == Targeted_Weight) vc->gp_list[tp] -= Targeted_Weight;///target pointer is 2
 			return 0;
+		}
+
+		for(i=0; i<vc->vms; i++){
+			if(vc->gp_list[i] != GC_Weight) continue;
+			percent_of_dirtied = (vc->vm[i].num_dirty - vc->d_num[i]) * 100;
+			do_div(percent_of_dirtied, vc->vm[i].num_dirty);
+			if(percent_of_dirtied < min_percent){
+				min = i; min_percent = percent_of_dirtied;
+		}}
 
 		if(vc->vms - vc->num_gp <= 2){
-			unsigned int min = 0;
-			unsigned int min_percent = 100;
 			printk("vms is %u, num_gp is %u\n", vc->vms, vc->num_gp);
-			for(i=0; i<vc->vms; i++){
-				if(vc->gp_list[i] != GC_Weight) continue;
-				percent_of_dirtied = (vc->vm[i].num_dirty - vc->d_num[i]) * 100;
-				do_div(percent_of_dirtied, vc->vm[i].num_dirty);
-				if(percent_of_dirtied < min_percent){
-					min = i; min_percent = percent_of_dirtied;
-				}
+			if(vc->gp_list[tp] == Targeted_Weight) vc->gp_list[tp] -= Targeted_Weight;///target pointer is 2
+
+			if(vc->gp_list[min] != GC_Weight){
+				printk("no exist GP\n");
+				return 0;
 			}
 			gp = min;
 			if(point_targeting(vc, &tp, &gp) == 0){
-				printk("ptr targeting\n");
+				//printk("ptr targeting\n");
+				if(vc->gp_list[tp] == Targeted_Weight) vc->gp_list[tp] -= Targeted_Weight;///target pointer is 2
 				return 0;
-			}
-		}
-		else if(percent_of_dirtied <= 50){
+		}}
+		else if(percent_of_dirtied <= 30){
 			printk("not yet\n");
+			if(vc->gp_list[tp] == Targeted_Weight) vc->gp_list[tp] -= Targeted_Weight;///target pointer is 2
 			return 0;
 		}
 		percent_of_dirtied = (vc->vm[gp].num_dirty - vc->d_num[gp]) * 100;
@@ -752,7 +765,7 @@ static int write_job(struct gc_set* gs){
 									}
 									if(min_weight != 0) vc->overload = 1;
 									
-									vc->gp_list[min] = Writed_Weight;
+									vc->gp_list[min] = Targeted_Weight;
 									printk("over flow!!! next tp is %d, %s\n", min, vc->vm[min].dev->name);
 									gs->tp = min;
 									if(vc->mig_flag == 0) vc->mig_flag = 1;
@@ -868,7 +881,7 @@ static int write_job(struct gc_set* gs){
 					if(gs->tp != gs->gp)
 						vc->ws[gs->gp] = 0;
 					if(gs->gp == 0) vc->ws[0]+= vc->num_map_block;//current num_map_block is 0. because for debugging
-					vc->gp_list[gs->tp] = Targeted_Weight;//targeted pointer is 1
+					vc->gp_list[gs->tp] = Writed_Weight;//targeted pointer is 1
 					vc->gp_list[gs->gp] = Clean_Weight;//0 means clean
 					printk("tp is %u, gp is %u\n", gs->tp, gs->gp);
 					printk("tp's ws is %llu\n", vc->ws[gs->tp]);
@@ -1011,7 +1024,7 @@ static int read_job(struct gc_set *gs){
 				for(i=0; i<vc->vms; i++){
 					percent_of_dirtied = (vc->vm[i].num_dirty - vc->d_num[i]) * 100;
 					do_div(percent_of_dirtied, vc->vm[i].num_dirty);
-					printk("%u's valid ratio is %llu\t", i, percent_of_dirtied);
+					printk("%u's(%u) valid ratio is %llu\t", i, vc->gp_list[i], percent_of_dirtied);
 				}
 				printk("\n");
 			}
@@ -1130,6 +1143,7 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, struct bio* 
 			second = -1; second_weight = -1;///second is only write ptr policy.
 			weight = 0;
 
+			printk("in mapping\t");
 			for(i = 0; i < vc->vms; i++){
 				next_point = (next_point + 1) % vc->vms;
 				if(vc->vm[next_point].maj_dev == gp_maj_dev && vc->vm[next_point].main_dev == gp_main_dev)
@@ -1150,7 +1164,7 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, struct bio* 
 
 			printk("big!! next wp is %d, %s\n", min, vc->vm[min].dev->name);
 			vc->wp = min;
-			vc->gp_list[vc->wp] = Writed_Weight;//write ptr
+			vc->gp_list[vc->wp] = Writing_Weight;//write ptr
 			if(vc->mig_flag == 0) vc->mig_flag = 1;
 		}
 
@@ -1175,9 +1189,6 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, struct bio* 
 			
 			i+= 8; phy_sector++; cur_index++; cur_ws+= 8; vc->d_num[vc->wp]--;
 		}
-
-		/*fs->reverse_table[vc->wp][phy_sector].index = index;
-		fs->reverse_table[vc->wp][phy_sector].dirty = 0;*/
 
 		bio->bi_bdev = vc->vm[vc->wp].dev->bdev;
 		bio->bi_iter.bi_sector = fs->table[index]->msector + remainder;
