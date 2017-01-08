@@ -468,7 +468,7 @@ static void vm_dtr(struct dm_target *ti)
 }
 
 inline int do_kijil(struct vm_c* vc, int gp){
-	unsigned long long disk_block_size = vc->vm[gp].end_sector+7 - vc->vm[gp].physical_start;//initialize for do_div
+	unsigned long long disk_block_size = vc->vm[gp].end_sector+7;// - vc->vm[gp].physical_start;//initialize for do_div
 	signed char num_count = 0;
 	unsigned long long i = 0;
 	//unsigned long long j, remainder;
@@ -496,7 +496,7 @@ inline int do_kijil(struct vm_c* vc, int gp){
 	}*/
 
 	if(gp_reverse_table[i].dirty == 0)		num_count = 1;
-	else if(gp_reverse_table[i].dirty == 1)	num_count = -1;
+	else if(gp_reverse_table[i].dirty >= 1)	num_count = -1;
 	for(i=1; i<disk_block_size; i++){///already check 0 index, modified to (i=0)
 		if(num_count > 0){
 			if(num_count == 127){//range over
@@ -517,7 +517,7 @@ inline int do_kijil(struct vm_c* vc, int gp){
 				kijil_size++;
 				num_count = 0;
 			}
-			if(gp_reverse_table[i].dirty == 1) num_count--;//continuous invalid blk
+			if(gp_reverse_table[i].dirty >= 1) num_count--;//continuous invalid blk
 			else{//invalid is end
 				kijil_map[kijil_size] = num_count;
 				kijil_size++;
@@ -822,7 +822,8 @@ static int write_job(struct gc_set* gs){
 								tp_reverse_table[g_tis + i].dirty = gp_reverse_table[cur_sector + i].dirty;
 
 								vc->ws[gs->tp] += 8;
-								if(tp_reverse_table[g_tis+i].dirty != 0) vc->d_num[gs->tp]--;
+								if(tp_reverse_table[g_tis+i].dirty != 1) vc->d_num[gs->tp]--;
+								gp_reverse_table[cur_sector + i].dirty = 1;
 							}
 						}mutex_unlock(&vc->lock);
 
@@ -1071,6 +1072,17 @@ static int read_job(struct gc_set *gs){
 		}
 		else{//mig flag is 0, 0 is wait for filling SSD
 			//printk("%d's read job is wait...\n", gs->set_num);
+			if(gs->set_num == 0){
+				unsigned long long percent_of_dirtied;
+				unsigned int i = 0;
+				
+				for(i=0; i<vc->vms; i++){
+					percent_of_dirtied = (vc->vm[i].num_dirty - vc->d_num[i]) * 100;
+					do_div(percent_of_dirtied, vc->vm[i].num_dirty);
+					printk("%u's(%u) valid ratio is %llu\t", i, vc->gp_list[i], percent_of_dirtied);
+				}
+				printk("\n");
+			}
 			ssleep(1);
 		}
 	}
@@ -1159,14 +1171,18 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, struct bio* 
 
 				if(dirtied_sector != -1){
 					do_div(dirtied_sector, 8);
-					if(fs->reverse_table[dirtied_wp][dirtied_sector].dirty == 1){
+					if(fs->reverse_table[dirtied_wp][dirtied_sector].dirty >= 1){
 						i+=8; dindex++;
 						continue;
 					}
-					fs->reverse_table[dirtied_wp][dirtied_sector].dirty = 1;////clean state is needed due to padding Writed SSD when the xGC ptr targeting
+					fs->reverse_table[dirtied_wp][dirtied_sector].dirty = 2;////clean state is needed due to padding Writed SSD when the xGC ptr targeting
 					vc->d_num[dirtied_wp]++;
 					fs->table[dindex]->wp = -1; fs->table[dindex]->msector = -1;
 				}
+				else if(dirtied_wp != -1){
+					printk("??????catch fuck guys.\n");
+				}
+
 				i+= 8; dindex++;
 			}
 		}
@@ -1332,17 +1348,36 @@ static int vm_map(struct dm_target *ti, struct bio *bio){
 
 			if(dirtied_sector != -1){
 				do_div(dirtied_sector, 8);
-				if(vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty == 1){
+				if(vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty >= 1){//1 is clean, 2 is dirty, 0 is valid
 					i+= 8; index++;
 					continue;
 				}
-				vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty = 1;
+				vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty = 2;
 				vc->d_num[dirtied_wp]++;
+				if(vc->d_num[dirtied_wp] == vc->vm[dirtied_wp].num_dirty && vc->gp_list[dirtied_wp] != Writing_Weight){
+					printk("all clean!\n");
+					vc->gp_list[dirtied_wp] = GC_Weight;
+				}
 				vc->fs->table[index]->msector = -1; vc->fs->table[index]->wp = -1;
+				/*blkdev_issue_discard(vc->vm[dirtied_wp].dev->bdev, vc->vm[dirtied_wp].physical_start,
+				  vc->vm[dirtied_wp].end_sector - 1 - vc->vm[dirtied_wp].physical_start, GFP_NOFS, 0);
+				  vc->gp_list[dirtied_wp] = Clean_Weight;*/
+			}
+			else if(dirtied_wp != -1){
+				printk("??????catch fuck guys.\n");
 			}
 			i+= 8; index++;
 		}
 		mutex_unlock(&vc->lock);
+
+		/*for(i=0; i<vc->vms; i++){////this approach is safe than ....
+			if(vc->d_num[i] == vc->vm[i].num_dirty){
+				printk("all clean!\n");
+				blkdev_issue_discard(vc->vm[i].dev->bdev, vc->vm[i].physical_start,
+						vc->vm[i].end_sector - 1 - vc->vm[i].physical_start, GFP_NOFS, 0);
+				vc->gp_list[i] = Clean_Weight;
+			}
+		}*/
 
 		bio_endio(bio);
 		return DM_MAPIO_SUBMITTED;
