@@ -682,10 +682,12 @@ inline char weathering_check(struct vm_c *vc){
 			vc->gs[i].tp_table_size = 0;
 			vc->gs[i].tp = tp;
 			vc->gs[i].gp = gp;
-			vc->gs[i].kijil_size = kijil_size;
+			//vc->gs[i].kijil_size = kijil_size;
 			vc->gs[i].phase_flag = -1;
 		}
 		kijil_size = do_kijil(vc, gp);////kijil_mapping
+		for(i=0; i<gc_buffer_size; i++)
+			vc->gs[i].kijil_size = kijil_size;
 
 		vc->read_index = 0;
 		vc->cur_sector = vc->vm[gp].physical_start;
@@ -819,7 +821,6 @@ static int write_job(struct gc_set* gs){
 								tp_reverse_table[g_tis + i].index = gp_reverse_table[cur_sector + i].index;
 								tp_reverse_table[g_tis + i].dirty = gp_reverse_table[cur_sector + i].dirty;
 
-								//if(gs->set_num == 0) printk("0's index %llu's write sector %llu, index %llu\n", c_bs->index, (cur_sector + i) * 8, gp_reverse_table[cur_sector + i].index);
 								vc->ws[gs->tp] += 8;
 								if(tp_reverse_table[g_tis+i].dirty != 0) vc->d_num[gs->tp]--;
 							}
@@ -849,6 +850,7 @@ static int write_job(struct gc_set* gs){
 								mutex_unlock(&vc->lock);
 							}
 						}
+
 						if(gs->ptr_ovflw_size != 0){//need to verify...
 							unsigned int j, next_tp;
 							printk("oGC's write overflow occur\n");
@@ -1163,6 +1165,7 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, struct bio* 
 					}
 					fs->reverse_table[dirtied_wp][dirtied_sector].dirty = 1;////clean state is needed due to padding Writed SSD when the xGC ptr targeting
 					vc->d_num[dirtied_wp]++;
+					fs->table[dindex]->wp = -1; fs->table[dindex]->msector = -1;
 				}
 				i+= 8; dindex++;
 			}
@@ -1315,14 +1318,14 @@ static int vm_map(struct dm_target *ti, struct bio *bio){
 	}
 	if(unlikely(bio->bi_rw & REQ_DISCARD)){
 		unsigned long long index = bio->bi_iter.bi_sector;
-		unsigned int remainder;
 		unsigned int i=0;
 		unsigned int sectors = bio_sectors(bio);
 		unsigned long long dirtied_sector;
 		unsigned int dirtied_wp;
 
-		remainder = do_div(index, 8);
-
+		do_div(index, 8);
+		
+		mutex_lock(&vc->lock);
 		while(i < sectors){
 			dirtied_sector = vc->fs->table[index]->msector;
 			dirtied_wp = vc->fs->table[index]->wp;
@@ -1339,40 +1342,10 @@ static int vm_map(struct dm_target *ti, struct bio *bio){
 			}
 			i+= 8; index++;
 		}
+		mutex_unlock(&vc->lock);
 
 		bio_endio(bio);
 		return DM_MAPIO_SUBMITTED;
-		/*unsigned long long index = bio->bi_iter.bi_sector;
-		do_div(index, 8);
-
-		printk("discard\n");
-		if(vc->fs->table[index]->msector == -1) printk("unknown discard's non index error\n");
-		else{
-			unsigned long long dirtied_sector = vc->fs->table[index]->msector;
-
-			if(dirtied_sector != -1){
-				unsigned int dirtied_wp = vc->fs->table[index]->wp;
-				unsigned long long i=0;
-				unsigned int d_size = vc->fs->reverse_table[dirtied_wp][dirtied_sector].size;
-				do_div(dirtied_sector, 8);
-
-				while(i < d_size){
-					if(i > 8)
-						printk("unknown dirty sector process error\n");
-					if(vc->fs->reverse_table[dirtied_wp][dirtied_sector].size == -1)
-						break;
-					if(vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty == 1){
-						i+= 8; dirtied_sector++;
-						continue;
-					}
-					vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty = 1;
-					vc->d_num[dirtied_wp]++;
-					i+= 8;
-					dirtied_sector++;
-				}
-			}
-			else printk("unknown discard's dirty sector error\n");
-		}*/
 	}
 	else if(unlikely(bio->bi_rw & REQ_WRITE_SAME)){
 		printk("write same\n");
