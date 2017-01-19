@@ -600,6 +600,16 @@ inline char point_targeting(struct vm_c *vc, int *r_tp, int *r_gp){//r_tp, r_gp 
 			weight = 5;
 		weight += vc->gp_list[tp];
 
+		if(weight == 1){
+			unsigned long long percent_of_ptr_location;
+			percent_of_ptr_location = (vc->ws[tp] + vc->vm[tp].physical_start) * 100;
+			do_div(percent_of_ptr_location, vc->vm[tp].end_sector);
+			if(percent_of_dirtied + percent_of_ptr_location < 100){
+				min = tp;
+				break;
+			}
+		}
+
 		if(weight == Writed_Weight){
 			unsigned long long percent_of_ptr_location;
 			percent_of_ptr_location = (vc->ws[tp] + vc->vm[tp].physical_start) * 100;
@@ -635,11 +645,6 @@ inline char weathering_check(struct vm_c *vc){
 		unsigned int min = 0;
 		unsigned int min_percent = 100;
 
-		if(point_targeting(vc, &tp, &gp) == 0){
-			Return_Weight();
-			return 0;
-		}
-
 		for(i=0; i<vc->vms; i++){
 			if(vc->gp_list[i] != GC_Weight) continue;
 			percent_of_dirtied = (vc->vm[i].num_dirty - vc->d_num[i]) * 100;
@@ -647,14 +652,21 @@ inline char weathering_check(struct vm_c *vc){
 			if(percent_of_dirtied < min_percent){
 				min = i; min_percent = percent_of_dirtied;
 			}
+		}//switched sequence (select minimum gp alg.) for aging or debugging
+		gp = min;
+
+		if(point_targeting(vc, &tp, &gp) == 0){
+			Return_Weight();
+			return 0;
 		}
 
 		if(min_percent > WEATHERING_RATIO){
-			if(vc->vms - vc->num_gp <= 2){
+			//if(vc->vms - vc->num_gp <= 2){
+			if(false){///for debug
 				Return_Weight();
 				if(vc->gp_list[min] != GC_Weight)
 					return 0;
-				gp = min;
+				gp = min;/////////////////????why...?
 				if(point_targeting(vc, &tp, &gp) == 0){
 					Return_Weight();
 					return 0;
@@ -1206,6 +1218,10 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, struct bio* 
 				if(vc->vm[next_point].maj_dev == gp_maj_dev && vc->vm[next_point].main_dev == gp_main_dev)
 					weight = 5;
 				weight+= vc->gp_list[next_point];
+
+				/*if(vc->gp_list[next_point] == Writed_Weight) weight--;/////////////////
+				else if(vc->gp_list[next_point] == Clean_Weight) weight++;///////////////////yet debugging...*/
+
 				printk("%u's weight is %u\t", next_point, weight);
 				if(min_weight > weight){
 					second = min; second_weight = min_weight;
