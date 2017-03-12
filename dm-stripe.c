@@ -48,7 +48,6 @@ struct frc{
 struct reverse_nodes{
 	sector_t index;
 	unsigned char dirty;
-	unsigned int size;
 };
 
 struct flag_nodes{
@@ -382,7 +381,6 @@ static int vm_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 		for(j=0; j<r_table_size; j++){
 			vc->fs->reverse_table[i][j].index = -1;
 			vc->fs->reverse_table[i][j].dirty = 1;
-			vc->fs->reverse_table[i][j].size = -1;
 		}
 		//printk("%u's first ptr is %p, final ptr is %p\n", i, &(vc->fs->reverse_table[i][0]), &(vc->fs->reverse_table[i][j]));
 	}
@@ -496,7 +494,7 @@ inline int do_kijil(struct vm_c* vc, int gp){
 	}*/
 
 	if(gp_reverse_table[i].dirty == 0)		num_count = 1;
-	else if(gp_reverse_table[i].dirty >= 1)	num_count = -1;
+	else if(gp_reverse_table[i].dirty == 1)	num_count = -1;
 	for(i=1; i<disk_block_size; i++){///already check 0 index, modified to (i=0)
 		if(num_count > 0){
 			if(num_count == 127){//range over
@@ -517,7 +515,7 @@ inline int do_kijil(struct vm_c* vc, int gp){
 				kijil_size++;
 				num_count = 0;
 			}
-			if(gp_reverse_table[i].dirty >= 1) num_count--;//continuous invalid blk
+			if(gp_reverse_table[i].dirty == 1) num_count--;//continuous invalid blk
 			else{//invalid is end
 				kijil_map[kijil_size] = num_count;
 				kijil_size++;
@@ -593,7 +591,7 @@ inline char point_targeting(struct vm_c *vc, int *r_tp, int *r_gp){//r_tp, r_gp 
 
 		percent_of_dirtied = (vc->vm[i].num_dirty - vc->d_num[i]) * 100;
 		do_div(percent_of_dirtied, vc->vm[i].num_dirty);
-		printk("%u's valid ratio is %llu\t", i, percent_of_dirtied);
+		printk("%u's valid ratio is %llu(%llu)\t", i, percent_of_dirtied, vc->d_num[i]);
 
 		tp = (tp + 1) % vc->vms;
 		if(vc->vm[tp].maj_dev == wp_maj_dev && vc->vm[tp].main_dev == wp_main_dev)
@@ -834,7 +832,7 @@ static int write_job(struct gc_set* gs){
 								tp_reverse_table[g_tis + i].dirty = gp_reverse_table[cur_sector + i].dirty;
 
 								vc->ws[gs->tp] += 8;
-								if(tp_reverse_table[g_tis+i].dirty != 1) vc->d_num[gs->tp]--;
+								if(tp_reverse_table[g_tis+i].dirty == 1) vc->d_num[gs->tp]--;
 								gp_reverse_table[cur_sector + i].dirty = 1;
 							}
 						}mutex_unlock(&vc->lock);
@@ -1091,7 +1089,7 @@ static int read_job(struct gc_set *gs){
 				for(i=0; i<vc->vms; i++){
 					percent_of_dirtied = (vc->vm[i].num_dirty - vc->d_num[i]) * 100;
 					do_div(percent_of_dirtied, vc->vm[i].num_dirty);
-					printk("%u's(%u) valid ratio is %llu\t", i, vc->gp_list[i], percent_of_dirtied);
+					printk("%u's(%u) valid ratio is %llu(%llu)\t", i, vc->gp_list[i], percent_of_dirtied, vc->d_num[i]);
 				}
 				printk("\n");
 			}
@@ -1183,18 +1181,15 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, struct bio* 
 
 				if(dirtied_sector != -1){
 					do_div(dirtied_sector, 8);
-					if(fs->reverse_table[dirtied_wp][dirtied_sector].dirty >= 1){
+					if(fs->reverse_table[dirtied_wp][dirtied_sector].dirty != 0){
 						i+=8; dindex++;
 						continue;
 					}
-					fs->reverse_table[dirtied_wp][dirtied_sector].dirty = 2;////clean state is needed due to padding Writed SSD when the xGC ptr targeting
+					fs->reverse_table[dirtied_wp][dirtied_sector].dirty = 1;////clean state is needed due to padding Writed SSD when the xGC ptr targeting
+					fs->reverse_table[dirtied_wp][dirtied_sector].index = -1;////clean state is needed due to padding Writed SSD when the xGC ptr targeting
 					vc->d_num[dirtied_wp]++;
 					fs->table[dindex]->wp = -1; fs->table[dindex]->msector = -1;
 				}
-				else if(dirtied_wp != -1){
-					printk("??????catch fuck guys.\n");
-				}
-
 				i+= 8; dindex++;
 			}
 		}
@@ -1244,12 +1239,10 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, struct bio* 
 			if(vc->mig_flag == 0) vc->mig_flag = 1;
 		}
 
-		fs->table[index]->msector = vc->ws[vc->wp];
-		vc->ws[vc->wp]+= sectors;
+		fs->table[index]->msector = vc->ws[vc->wp] + vc->vm[vc->wp].physical_start;
 		fs->table[index]->wp = vc->wp;
+		vc->ws[vc->wp]+= sectors;
 		mutex_unlock(&vc->lock);
-
-		fs->table[index]->msector+= vc->vm[vc->wp].physical_start;
 
 		i = 0; phy_sector = fs->table[index]->msector;
 		cur_ws = fs->table[index]->msector;	cur_index = index;
@@ -1261,16 +1254,11 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, struct bio* 
 			fs->table[cur_index]->wp = fs->table[index]->wp;
 			fs->table[cur_index]->msector = cur_ws;
 
-			fs->reverse_table[vc->wp][phy_sector].size = sectors - i;
 			fs->reverse_table[vc->wp][phy_sector].index = cur_index;
 			fs->reverse_table[vc->wp][phy_sector].dirty = 0;
 			
-			i+= 8; phy_sector++; cur_index++; cur_ws+= 8; vc->d_num[vc->wp]--;
+			i+= 8; phy_sector++; cur_index++; cur_ws+= 8; vc->d_num[fs->table[index]->wp]--;
 		}
-
-		/*fs->reverse_table[vc->wp][phy_sector].size = sectors;/////this is record only first phy_sector
-		fs->reverse_table[vc->wp][phy_sector].index = index;
-		fs->reverse_table[vc->wp][phy_sector].dirty = 0;*/
 
 		bio->bi_bdev = vc->vm[vc->wp].dev->bdev;
 		bio->bi_iter.bi_sector = fs->table[index]->msector + remainder;
@@ -1354,46 +1342,43 @@ static int vm_map(struct dm_target *ti, struct bio *bio){
 		unsigned int sectors = bio_sectors(bio);
 		unsigned long long dirtied_sector;
 		unsigned int dirtied_wp;
+		unsigned long long temp1 = 0, temp2 = 0;
 
 		do_div(index, 8);
 		
 		mutex_lock(&vc->lock);
+		//vc->mig_flag = 3;///prevent to xGC while discard
+		//printk("...for debug... vm 1 %llu, vm 2 %llu\n", vc->d_num[0], vc->d_num[1]);
 		while(i < sectors){
 			dirtied_sector = vc->fs->table[index]->msector;
 			dirtied_wp = vc->fs->table[index]->wp;
 
 			if(dirtied_sector != -1){
 				do_div(dirtied_sector, 8);
-				if(vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty >= 1){//1 is clean, 2 is dirty, 0 is valid
-					i+= 8; index++;
-					continue;
+				if(vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty == 0){//1 is clean, 2 is dirty, 0 is valid
+					if(dirtied_sector*8 != vc->fs->table[vc->fs->reverse_table[dirtied_wp][dirtied_sector].index]->msector){
+						vc->fs->table[index]->msector = -1; vc->fs->table[index]->wp = -1;
+						//printk("d_bit %u, dirtied wp %u, dirtied_sector %llu, rt's index %llu, msector(8x unit) %llu\n", vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty, dirtied_wp, dirtied_sector, vc->fs->reverse_table[dirtied_wp][dirtied_sector].index, vc->fs->table[vc->fs->reverse_table[dirtied_wp][dirtied_sector].index]->msector);
+					}
+					else{
+						vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty = 1;
+						vc->d_num[dirtied_wp]++;
+						
+						if(vc->d_num[dirtied_wp] == vc->vm[dirtied_wp].num_dirty && vc->gp_list[dirtied_wp] != Writing_Weight){
+							printk("all clean!\n");
+							vc->gp_list[dirtied_wp] = GC_Weight;
+						}
+						vc->fs->table[index]->msector = -1; vc->fs->table[index]->wp = -1;
+						/*blkdev_issue_discard(vc->vm[dirtied_wp].dev->bdev, vc->vm[dirtied_wp].physical_start,
+						  vc->vm[dirtied_wp].end_sector - 1 - vc->vm[dirtied_wp].physical_start, GFP_NOFS, 0);
+						  vc->gp_list[dirtied_wp] = Clean_Weight;*/
+					}
 				}
-				vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty = 2;
-				vc->d_num[dirtied_wp]++;
-				if(vc->d_num[dirtied_wp] == vc->vm[dirtied_wp].num_dirty && vc->gp_list[dirtied_wp] != Writing_Weight){
-					printk("all clean!\n");
-					vc->gp_list[dirtied_wp] = GC_Weight;
-				}
-				vc->fs->table[index]->msector = -1; vc->fs->table[index]->wp = -1;
-				/*blkdev_issue_discard(vc->vm[dirtied_wp].dev->bdev, vc->vm[dirtied_wp].physical_start,
-				  vc->vm[dirtied_wp].end_sector - 1 - vc->vm[dirtied_wp].physical_start, GFP_NOFS, 0);
-				  vc->gp_list[dirtied_wp] = Clean_Weight;*/
-			}
-			else if(dirtied_wp != -1){
-				printk("??????catch fuck guys.\n");
 			}
 			i+= 8; index++;
 		}
+		//printk("...debug end... vm1 %llu, vm2 %llu\n", temp1, temp2);
 		mutex_unlock(&vc->lock);
-
-		/*for(i=0; i<vc->vms; i++){////this approach is safe than ....
-			if(vc->d_num[i] == vc->vm[i].num_dirty){
-				printk("all clean!\n");
-				blkdev_issue_discard(vc->vm[i].dev->bdev, vc->vm[i].physical_start,
-						vc->vm[i].end_sector - 1 - vc->vm[i].physical_start, GFP_NOFS, 0);
-				vc->gp_list[i] = Clean_Weight;
-			}
-		}*/
 
 		bio_endio(bio);
 		return DM_MAPIO_SUBMITTED;
