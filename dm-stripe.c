@@ -835,23 +835,19 @@ static int write_job(struct gc_set* gs){
 
 								vc->ws[gs->tp] += 8;
 								
-								if(c_bs->index+i <= vc->vm[gs->gp].end_sector + 7){
-									if(tp_reverse_table[c_bs->index+i].index != -1){
-										if(tp_reverse_table[c_bs->index + i].dirty == 0){//if it is valid data
+								if(g_tis+i < vc->vm[gs->tp].end_sector + 7 && c_bs->index + i < vc->vm[gs->gp].end_sector + 7){
+									if(tp_reverse_table[g_tis+i].index != -1){
+										if(tp_reverse_table[g_tis+i].dirty == 0){//if it is valid data
 											//printk("gp dirty %u, tp dirty %u, gp index %llu, tp index %llu, gp msector %llu, tp msector %llu\n",
 											vc->d_num[gs->tp]--;////valid data must sub d_num;
 										}
 										//printk("%llu's gp dirty %u\n", c_bs->index + i, gp_reverse_table[c_bs->index+i].dirty);
-										vc->fs->table[tp_reverse_table[c_bs->index+i].index]->msector = -1;
-										vc->fs->table[tp_reverse_table[c_bs->index+i].index]->wp = -1;
+										vc->fs->table[tp_reverse_table[g_tis+i].index]->msector = -1;
+										vc->fs->table[tp_reverse_table[g_tis+i].index]->wp = -1;
 										gp_reverse_table[c_bs->index+i].index = -1;
 										gp_reverse_table[c_bs->index + i].dirty = 1;
 									}
-									else
-										printk("fucking error2 \n");
 								}
-								else
-									printk("fucking error1\n");
 							}
 						}mutex_unlock(&vc->lock);
 
@@ -1244,8 +1240,8 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, struct bio* 
 					if(vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty == 0){
 						//printk("d_bit %u, dirtied wp %u, dirtied_sector*8 %llu, rt's index %llu, msector %llu\n", vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty, dirtied_wp, dirtied_sector * 8, vc->fs->reverse_table[dirtied_wp][dirtied_sector].index, vc->fs->table[vc->fs->reverse_table[dirtied_wp][dirtied_sector].index]->msector);
 						vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty = 1;
-						if(dirtied_sector*8 == vc->fs->table[vc->fs->reverse_table[dirtied_wp][dirtied_sector].index]->msector){
-							//if(dindex != vc->fs->reverse_table[dirtied_wp][dirtied_sector].index) printk("?? unknown error... dirtied_sector*8 %llu, msector %llu, index %llu, rt's index %llu\n", dirtied_sector*8, vc->fs->table[vc->fs->reverse_table[dirtied_wp][dirtied_sector].index]->msector, dindex, vc->fs->reverse_table[dirtied_wp][dirtied_sector].index);
+						//if(dirtied_sector*8 == vc->fs->table[vc->fs->reverse_table[dirtied_wp][dirtied_sector].index]->msector){
+						if(vc->d_num[dirtied_wp] < vc->vm[dirtied_wp].num_dirty){
 							vc->d_num[dirtied_wp]++;
 						}
 						vc->fs->table[dindex]->msector = -1; vc->fs->table[dindex]->wp = -1;
@@ -1425,8 +1421,8 @@ static int vm_map(struct dm_target *ti, struct bio *bio){
 				if(vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty == 0){
 					//printk("d_bit %u, dirtied wp %u, dirtied_sector %llu, rt's index %llu, msector(8x unit) %llu\n", vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty, dirtied_wp, dirtied_sector, vc->fs->reverse_table[dirtied_wp][dirtied_sector].index, vc->fs->table[vc->fs->reverse_table[dirtied_wp][dirtied_sector].index]->msector);
 					vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty = 1;
-					if(dirtied_sector*8 == 
-							vc->fs->table[vc->fs->reverse_table[dirtied_wp][dirtied_sector].index]->msector){
+					//if(dirtied_sector*8 == 	vc->fs->table[vc->fs->reverse_table[dirtied_wp][dirtied_sector].index]->msector){
+					if(vc->d_num[dirtied_wp] < vc->vm[dirtied_wp].num_dirty){
 						vc->d_num[dirtied_wp]++;
 						
 						if(vc->d_num[dirtied_wp] == vc->vm[dirtied_wp].num_dirty && vc->gp_list[dirtied_wp] != Writing_Weight){
