@@ -1,0 +1,15 @@
+[job]
+ioengine=libaio
+direct=1
+rw=randwrite
+norandommap
+size=4g
+bs=8k
+random_distribution=zipf:0.5
+
+iodepth=32
+numjobs=1
+#number_ios=125000000
+
+time_based=1
+runtime=2400
