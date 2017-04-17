@@ -6,7 +6,7 @@ rw=randwrite
 ioengine=libaio
 iodepth=32
 ############size 400g is for raid0, swan
-size=290g
+size=350g
 
 [files]
 numjobs=1

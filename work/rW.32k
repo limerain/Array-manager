@@ -1,17 +1,15 @@
 [global]
 #bsrange=4k-256k
-blocksize=32k
-#direct=1
+blocksize=256k
+buffered=0
+direct=1
 rw=randwrite
 ioengine=libaio
 iodepth=32
-size=150g
+size=100g
 
 [files]
 numjobs=1
 nrfiles=10
 time_based=1
-runtime=1200
-
-write_bw_log=rndW_32k
-write_lat_log=rndW_32k
+runtime=1800

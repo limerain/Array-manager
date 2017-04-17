@@ -23,13 +23,12 @@
 #
 
 set $dir=/mnt/tvm
-set $nfiles=10k
-set $meandirwidth=5
-set $meanfilesize=1024k
-set $nthreads=1
-set $iosize=16k
-set $meanappendsize=16k
-#set $directio=1
+set $nfiles=20k
+set $meandirwidth=1000000
+set $meanfilesize=1m
+set $nthreads=16
+set $iosize=1m
+set $meanappendsize=32k
 
 define fileset name=bigfileset,path=$dir,size=$meanfilesize,entries=$nfiles,dirwidth=$meandirwidth,prealloc=80
 
@@ -61,4 +60,4 @@ usage "       set \$iosize=<size>  defaults to $iosize"
 usage "       set \$meandirwidth=<size> defaults to $meandirwidth"
 usage "       run runtime (e.g. run 60)"
 
-run 1200
+run 720

@@ -62,16 +62,22 @@ def dataSave(_str):
 	#print(row2[11]);
 	#svctm_ary.append(float(row2[11]))
 	#print(svctm_ary)
-	row3 = row2[5].split('.')
+	row3 = row2[4].split('.')
+	row4 = row2[5].split('.')
+	row5 = row2[8].split('.')
 	
+	r3 = int(row3[0]) / 1024
+	r4 = int(rot4[0]) / 1024
+	r5 = r3 + r4
 	file = open(sys.argv[2], 'w')
-#	file.write(row2[5])
+	#file.write(row2[5])
 	#file.write(row3[0] + '\0')
 	#file.write(row3[0]+ ' ' + str(standardDeviation(svctm_ary, 1)) + '\0')
 	file.write(row3[0] + ' ' + row2[11] + '\0')
 
 	file2 = open(sys.argv[3], 'a')
-	file2.write(row3[0] + '\n')
+#file2.write(row3[0] + ' ' + row4[0] + '\n')
+	file2.write(str(r3) + ' ' + str(r4) + ' ' str(r5) + ' ' + row5[0] + '\n')
 	file2.close()
 
 command = 'iostat ' + dev + ' -x 1'
