@@ -36,9 +36,10 @@
 #define Clean_Weight 0
 #define winnowing 0
 #define WEATHERING_RATIO 30
+#define KIZIL_POLICY 1
 
-#define Return_Weight() if(vc->gp_list[tp] == Targeted_Weight) vc->gp_list[tp] -= Targeted_Weight;\
-										  else if(vc->gp_list[tp] == Writing_Weight) vc->gp_list[tp] -= Writing_Weight;
+#define Return_Weight() if(!KIZIL_POLICY && vc->gp_list[tp] == Targeted_Weight) vc->gp_list[tp] -= Targeted_Weight;\
+										  else if(!KIZIL_POLICY && vc->gp_list[tp] == Writing_Weight) vc->gp_list[tp] -= Writing_Weight;\
 
 struct frc{
 	char* buf;
@@ -53,6 +54,7 @@ struct reverse_nodes{
 struct flag_nodes{
 	sector_t msector;
 	unsigned int wp;
+	unsigned int num_moved;
 };
 
 struct flag_set{
@@ -66,6 +68,7 @@ struct buf_set{
 	unsigned long long index;
 	unsigned long long sector;
 	char size;
+	unsigned int target_wp;
 };
 
 struct gc_set{
@@ -93,6 +96,7 @@ struct vm {
 	unsigned int main_dev;
 	unsigned int maj_dev;
 	unsigned long long num_dirty;
+	unsigned char gen;
 
 	atomic_t error_count;
 };
@@ -363,6 +367,7 @@ static int vm_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 		vc->fs->table[i] = kmem_cache_alloc(vc->fs->node_buf, GFP_KERNEL);//pre alloc start
 		vc->fs->table[i]->msector = -1;
 		vc->fs->table[i]->wp = -1;//pre alloc end
+		if(KIZIL_POLICY) vc->fs->table[i]->num_moved = 0;
 	}
 	vc->num_map_block = 0;//vc->num_entry * sizeof(struct flag_nodes) / 4096;
 	//vc->ws[0] += vc->num_map_block;
@@ -400,6 +405,31 @@ static int vm_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	vc->mig_flag = 0;
 	mutex_init(&vc->lock);
 	mutex_init(&vc->gc_lock);
+
+	if(KIZIL_POLICY){
+		unsigned int i, j, r_size, l_size, gen;
+		r_size = vc->vms; l_size = vc->vms;
+		j = 0; gen = 0;
+		while(l_size){
+			if(l_size/2>0)
+				r_size = l_size/2;
+			else
+				r_size = 1;
+			//l_size/2>0 ? r_size = l_size/2 : r_size = 1;
+			//printk("l_size %u, r_size %u, gen %u, j %u\n", l_size, r_size, gen, j);
+			for(i=0; i<r_size; i++){
+				vc->vm[j].gen = gen;
+				j++;
+			}
+			gen++;
+			l_size-= r_size;
+		}
+		
+		for(i=0; i<vc->vms; i++)
+			printk("%u's gen is %u\t", i, vc->vm[i].gen);
+		printk("\n");
+	}
+	else vc->vm[i].gen = 0;
 
 	ti->private = vc;
 	vc->gs = kmalloc(sizeof(struct gc_set) * gc_buffer_size, GFP_KERNEL);
@@ -628,10 +658,10 @@ inline char point_targeting(struct vm_c *vc, int *r_tp, int *r_gp){//r_tp, r_gp 
 		weight = 0;
 	}
 	printk("\n");
-	vc->gp_list[min] = Targeted_Weight;///target pointer is 2
 	//printk("in ptr targeting, gp_list ++ %u\n", vc->gp_list[min]);
 	*r_tp = min;
-	
+	vc->gp_list[min] = Targeted_Weight;///target pointer is 2
+
 	return 1;
 }
 
@@ -835,23 +865,25 @@ static int write_job(struct gc_set* gs){
 
 								vc->ws[gs->tp] += 8;
 								
-								if(g_tis+i < vc->vm[gs->tp].end_sector + 7 && c_bs->index + i < vc->vm[gs->gp].end_sector + 7){
+								if(g_tis+i < vc->vm[gs->tp].end_sector + 7 &&
+										c_bs->index + i < vc->vm[gs->gp].end_sector + 7){
 									if(tp_reverse_table[g_tis+i].index != -1){
 										if(tp_reverse_table[g_tis+i].dirty == 0){//if it is valid data
 											//printk("gp dirty %u, tp dirty %u, gp index %llu, tp index %llu, gp msector %llu, tp msector %llu\n",
 											vc->d_num[gs->tp]--;////valid data must sub d_num;
 										}
 										//printk("%llu's gp dirty %u\n", c_bs->index + i, gp_reverse_table[c_bs->index+i].dirty);
-										vc->fs->table[tp_reverse_table[g_tis+i].index]->msector = -1;
-										vc->fs->table[tp_reverse_table[g_tis+i].index]->wp = -1;
-										gp_reverse_table[c_bs->index+i].index = -1;
+										vc->fs->table[tp_reverse_table[g_tis + i].index]->msector = -1;
+										vc->fs->table[tp_reverse_table[g_tis + i].index]->wp = -1;
+										gp_reverse_table[c_bs->index + i].index = -1;
 										gp_reverse_table[c_bs->index + i].dirty = 1;
 									}
 								}
 							}
 						}mutex_unlock(&vc->lock);
 
-						io.bdev = vc->vm[gs->tp].dev->bdev;///need to modify
+						if(KIZIL_POLICY) io.bdev = vc->vm[gs->bs->target_wp].dev->bdev;
+						else			 io.bdev = vc->vm[gs->tp].dev->bdev;///need to modify
 						//if overflow occur, then tp is need to change
 						io.sector = gs->tp_io_sector;
 						io.count = (c_bs->size * 8) - gs->ptr_ovflw_size;//(gs->kijil_map[c_bs->index] - gs->ptr_ovflw_size) * 8;
@@ -873,6 +905,8 @@ static int write_job(struct gc_set* gs){
 								vc->fs->table[rn->index]->msector = gs->tp_io_sector + (i * 8);
 								vc->fs->table[rn->index]->wp = gs->tp;
 								mutex_unlock(&vc->lock);
+								if(KIZIL_POLICY && vc->gp_list[gs->bs->target_wp] == Writed_Weight)
+									vc->gp_list[gs->bs->target_wp] -= Writed_Weight;
 							}
 						}
 
@@ -1027,49 +1061,29 @@ static int read_job(struct gc_set *gs){
 				}
 				while(1){
 					if(gs->phase_flag == 0){
-						/*mutex_lock(gs->gc_lock);////////old read. based on kizil map...
-						read_index = vc->read_index;//avoid to problem
-						cur_sector = vc->cur_sector;
-						if(read_index >= gs->kijil_size) gs->phase_flag = -2;
-						while(gs->kijil_map[read_index] <= 0){//if invalid
-							//printk("%d's skip index %llu, sector %llu, size %llu\n", gs->set_num, read_index, cur_sector, (unsigned long long)(-gs->kijil_map[read_index]) * 8);
-							cur_sector-= gs->kijil_map[read_index] * 8; //kijil_map[index] value is negative. therefore cur_sector+= minus(negative value)
-							read_index++;//index & sector ptr is increase
-							if(read_index >= gs->kijil_size){
-								//this code section is case of last index is invalid.
-								//therefore read job is required to end
-								gs->phase_flag = -2;
-								break;
-							}
-						}
-						if(gs->phase_flag == -2 || read_index >= gs->kijil_size){
-							gs->phase_flag = -2;
-							mutex_unlock(gs->gc_lock);
-							vc->gc_flag|= 2;
-							break;///read lable break.
-						}
-						vc->read_index = read_index + 1;//index and,
-						vc->cur_sector = cur_sector + gs->kijil_map[read_index] * 8;//cur_sector value is up to date.
-						mutex_unlock(gs->gc_lock);*/
 						mutex_lock(gs->gc_lock);{
 							read_index = vc->read_index;
 							cur_sector = vc->cur_sector;
 							c_size = 0;
 							while(vc->fs->reverse_table[gs->gp][read_index].dirty == 1 &&
-									//read_index < vc->vm[gs->gp].end_sector + 7){
 									cur_sector + 8 <= vc->vm[gs->gp].end_sector){
 								read_index++;
 								cur_sector+= 8;
 							}
 							while(vc->fs->reverse_table[gs->gp][read_index].dirty == 0 &&
-									//read_index < vc->vm[gs->gp].end_sector + 7){
 									cur_sector + (c_size * 8) <= vc->vm[gs->gp].end_sector){
-								if(c_size == 127) break;//c_buffer overflow
-								c_size++;
 								read_index++;
+								c_size++;
+								//printk("in loop c_size %u, read_index %llu, cur_sector %llu, -1's index %llu, index %llu\n", c_size, read_index, cur_sector, vc->fs->reverse_table[gs->gp][read_index-1].index, vc->fs->reverse_table[gs->gp][read_index].index);
+								if(KIZIL_POLICY 
+										&& ((vc->fs->reverse_table[gs->gp][read_index-1].index != -1 &&  vc->fs->reverse_table[gs->gp][read_index].index != -1) 
+											&& (vc->fs->reverse_table[gs->gp][read_index].dirty == 0 && vc->fs->table[vc->fs->reverse_table[gs->gp][read_index-1].index]->num_moved != vc->fs->table[vc->fs->reverse_table[gs->gp][read_index].index]->num_moved))
+										|| c_size == 127)
+									break;
+								else if(!KIZIL_POLICY && c_size == 127)
+									break;
 							}
 							if(gs->phase_flag == -2 ||
-									//read_index >= vc->vm[gs->gp].end_sector + 7){
 								cur_sector + (c_size * 8) > vc->vm[gs->gp].end_sector){
 								gs->phase_flag = -2;
 								mutex_unlock(gs->gc_lock);
@@ -1077,10 +1091,53 @@ static int read_job(struct gc_set *gs){
 								//printk("fin. c_size %u, read_index %llu, cur_sector %llu\n", c_size, read_index, cur_sector);
 								break;
 							}
-							if(c_size != 127) vc->read_index = read_index + 1;
+							/*if(c_size != 127) vc->read_index = read_index + 1;
 							else vc->read_index = read_index;
-							vc->cur_sector = cur_sector + ((c_size!=127?(c_size+1):c_size) * 8);
+							vc->cur_sector = cur_sector + ((c_size!=127?(c_size+1):c_size) * 8);*/
+							//printk("before c_size %u, read_index %llu, cur_sector %llu, -1's index %llu, index %llu\n", c_size, read_index, cur_sector, vc->fs->reverse_table[gs->gp][read_index-1].index, vc->fs->reverse_table[gs->gp][read_index].index);
+							if((c_size == 127 ||
+										((vc->fs->reverse_table[gs->gp][read_index-1].index != -1 &&  vc->fs->reverse_table[gs->gp][read_index].index != -1) 
+											&& vc->fs->table[vc->fs->reverse_table[gs->gp][read_index-1].index]->num_moved != vc->fs->table[vc->fs->reverse_table[gs->gp][read_index].index]->num_moved))){
+								vc->read_index = read_index;
+								vc->cur_sector = cur_sector + c_size * 8;
+							}
+							else{
+								vc->read_index = read_index + 1;
+								vc->cur_sector = cur_sector + (c_size + 1) * 8;
+							}
+									
 						}mutex_unlock(gs->gc_lock);
+						
+						if(KIZIL_POLICY){//////////////select write pointer
+							unsigned int cur_moved = 0;
+							unsigned int written_tp = -1;
+							unsigned int i = -1, flag = 0;
+							gs->bs->target_wp = -1;
+							
+							vc->fs->table[vc->fs->reverse_table[gs->gp][read_index - c_size].index]->num_moved;
+							for(i=0; i<vc->vms; i++){
+								unsigned int min_weight = -1;
+								if(vc->gp_list[i] >= Writing_Weight) continue;
+								if(vc->vm[i].gen == cur_moved){
+									if(vc->gp_list[i] == Clean_Weight || vc->gp_list[i] == Writed_Weight){
+										//gs->tp_clean_flag = 1;
+										gs->bs->target_wp = i;
+										flag = 1;
+										break;/////really?
+									}
+									else{
+										if(min_weight > vc->gp_list[i]){
+											min_weight = vc->gp_list[i];
+											written_tp = i;
+											flag = 2;
+										}}}
+							}
+							
+							if(flag == 1) vc->gp_list[gs->bs->target_wp] = Writed_Weight;
+							else if(flag == 2) gs->bs->target_wp = written_tp;
+							else gs->bs->target_wp = gs->tp;
+							//printk("flag %u, target wp is %u\n", flag, gs->bs->target_wp);
+						}
 
 						gs->bs->index = read_index - c_size;
 						gs->bs->sector = cur_sector;
@@ -1421,7 +1478,6 @@ static int vm_map(struct dm_target *ti, struct bio *bio){
 				if(vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty == 0){
 					//printk("d_bit %u, dirtied wp %u, dirtied_sector %llu, rt's index %llu, msector(8x unit) %llu\n", vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty, dirtied_wp, dirtied_sector, vc->fs->reverse_table[dirtied_wp][dirtied_sector].index, vc->fs->table[vc->fs->reverse_table[dirtied_wp][dirtied_sector].index]->msector);
 					vc->fs->reverse_table[dirtied_wp][dirtied_sector].dirty = 1;
-					//if(dirtied_sector*8 == 	vc->fs->table[vc->fs->reverse_table[dirtied_wp][dirtied_sector].index]->msector){
 					if(vc->d_num[dirtied_wp] < vc->vm[dirtied_wp].num_dirty){
 						vc->d_num[dirtied_wp]++;
 						
