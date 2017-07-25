@@ -36,7 +36,7 @@
 #define Clean_Weight 0
 #define winnowing 0
 #define WEATHERING_RATIO 30
-#define KIZIL_POLICY 1
+#define KIZIL_POLICY 0
 
 #define Return_Weight() if(!KIZIL_POLICY && vc->gp_list[tp] == Targeted_Weight) vc->gp_list[tp] -= Targeted_Weight;\
 										  else if(!KIZIL_POLICY && vc->gp_list[tp] == Writing_Weight) vc->gp_list[tp] -= Writing_Weight;\
@@ -599,6 +599,7 @@ inline char point_targeting(struct vm_c *vc, int *r_tp, int *r_gp){//r_tp, r_gp 
 	unsigned int wp_maj_dev;
 	unsigned long long percent_of_dirtied;// = vc->vm[gp].num_dirty - vc->d_num[gp] * 100;/////thisthis
 
+	printk("pt targeting \n");
 	if(*r_gp == -1){
 		for(i=0; i<vc->vms; i++){
 			if(vc->gp_list[i] == GC_Weight){
@@ -617,18 +618,21 @@ inline char point_targeting(struct vm_c *vc, int *r_tp, int *r_gp){//r_tp, r_gp 
 	wp_maj_dev = vc->vm[vc->wp].maj_dev;
 	min = tp; min_weight = -1;
 
+	printk("for...\n");
 	for(i=0; i<vc->vms; i++){
 		unsigned weight = 0;
 
 		percent_of_dirtied = (vc->vm[i].num_dirty - vc->d_num[i]) * 100;
 		do_div(percent_of_dirtied, vc->vm[i].num_dirty);
-		printk("%u's valid ratio is %llu(%llu)\t", i, percent_of_dirtied, vc->d_num[i]);
+		//printk("%u's valid ratio is %llu(%llu)\t", i, percent_of_dirtied, vc->d_num[i]);
+		printk("%u's(%u) valid ratio is %llu(%llu) ", i, vc->gp_list[i], percent_of_dirtied, vc->d_num[i]);
 
 		tp = (tp + 1) % vc->vms;
 		if(vc->vm[tp].maj_dev == wp_maj_dev && vc->vm[tp].main_dev == wp_main_dev)
 			weight = 5;
 		weight += vc->gp_list[tp];
 
+		printk("weight 1?\n");
 		if(weight == 1){
 			unsigned long long percent_of_ptr_location;
 			percent_of_ptr_location = (vc->ws[tp] + vc->vm[tp].physical_start) * 100;
@@ -639,6 +643,7 @@ inline char point_targeting(struct vm_c *vc, int *r_tp, int *r_gp){//r_tp, r_gp 
 			}
 		}
 
+		printk("weight == writed_weight\n");
 		if(weight == Writed_Weight){
 			unsigned long long percent_of_ptr_location;
 			percent_of_ptr_location = (vc->ws[tp] + vc->vm[tp].physical_start) * 100;
@@ -649,6 +654,7 @@ inline char point_targeting(struct vm_c *vc, int *r_tp, int *r_gp){//r_tp, r_gp 
 			}
 		}
 
+		printk("min>weight?\n");
 		if(min_weight > weight){//search target device by minimal weight
 			min = tp;
 			min_weight = weight;
@@ -674,6 +680,8 @@ inline char weathering_check(struct vm_c *vc){
 		unsigned int min = 0;
 		unsigned int min_percent = 100;
 
+/*
+		printk("weight cal in weathering\n");
 		for(i=0; i<vc->vms; i++){
 			if(vc->gp_list[i] != GC_Weight) continue;
 			percent_of_dirtied = (vc->vm[i].num_dirty - vc->d_num[i]) * 100;
@@ -684,10 +692,13 @@ inline char weathering_check(struct vm_c *vc){
 		}//switched sequence (select minimum gp alg.) for aging or debugging
 		gp = min;
 
+		printk("weathering start\n");
 		if(point_targeting(vc, &tp, &gp) == 0){
+		//if(false){
 			Return_Weight();
 			return 0;
 		}
+		printk(" minp > Wratio? %d\n", min_percent);
 
 		if(min_percent > WEATHERING_RATIO){
 			//if(vc->vms - vc->num_gp <= 2){
@@ -707,7 +718,11 @@ inline char weathering_check(struct vm_c *vc){
 				return 0;
 			}
 		}
-
+		else{
+			printk("weathering success\n");
+		}
+	
+		printk("dirty ratio ??\n");
 		percent_of_dirtied = (vc->vm[gp].num_dirty - vc->d_num[gp]) * 100;
 		do_div(percent_of_dirtied, vc->vm[gp].num_dirty);
 		printk("dirty_ratio is %llu\n", percent_of_dirtied);
@@ -723,15 +738,12 @@ inline char weathering_check(struct vm_c *vc){
 			//vc->gs[i].kijil_size = kijil_size;
 			vc->gs[i].phase_flag = -1;
 		}
-		/*kijil_size = do_kijil(vc, gp);////kijil_mapping
-		for(i=0; i<gc_buffer_size; i++)
-			vc->gs[i].kijil_size = kijil_size;
-		*/
 		vc->read_index = 0;
 		//vc->cur_sector = vc->vm[gp].physical_start;
 		vc->cur_sector = 0;
 		printk("gp_count %u, gp %u, tp %u\n", vc->num_gp, gp, tp);
 		return 1;
+*/
 	}
 	return 0;
 }
@@ -751,7 +763,7 @@ inline void map_store(struct vm_c *vc){
 
 	memcpy(buf_for_store, (char*) table, 4096);
 
-	io_req.bi_rw = WRITE; io_req.mem.type = DM_IO_VMA;
+	io_req.bi_op = REQ_OP_WRITE; io_req.mem.type = DM_IO_VMA;
 	io_req.mem.ptr.vma = buf_for_store;
 	io_req.client = vc->io_client;
 	io_req.notify.fn = NULL;
@@ -767,7 +779,7 @@ inline void map_store(struct vm_c *vc){
 	vfree(buf_for_store);
 	buf_for_store = vmalloc(4096);
 
-	io_req.bi_rw = READ; io_req.mem.type = DM_IO_VMA;
+	io_req.bi_op = REQ_OP_READ; io_req.mem.type = DM_IO_VMA;
 	io_req.mem.ptr.vma = buf_for_store;
 	io_req.client = vc->io_client;
 	io_req.notify.fn = NULL;
@@ -793,7 +805,7 @@ static int write_job(struct gc_set* gs){
 	struct reverse_nodes* tp_reverse_table = NULL;
 	struct reverse_nodes* gp_reverse_table = NULL;
 
-	io_req.bi_rw = WRITE; io_req.mem.type = DM_IO_VMA;
+	io_req.bi_op = REQ_OP_WRITE; io_req.mem.type = DM_IO_VMA;
 	io_req.mem.ptr.vma = gs->bs->buf; io_req.notify.fn = NULL;
 	io_req.client = vc->io_client;
 
@@ -1045,7 +1057,7 @@ static int read_job(struct gc_set *gs){
 	unsigned long long cur_sector = 0;
 	char c_size = 0;
 
-	io_req.bi_rw = READ; io_req.mem.type = DM_IO_VMA;
+	io_req.bi_op = REQ_OP_READ; io_req.mem.type = DM_IO_VMA;
 	io_req.mem.ptr.vma = gs->bs->buf;
 	io_req.notify.fn = NULL; io_req.client = vc->io_client;
 
@@ -1054,7 +1066,7 @@ static int read_job(struct gc_set *gs){
 			//if(gs->kijil_map != NULL && vc->gc_flag & 1){
 			if(vc->gc_flag & 1){
 				if(gs->phase_flag == -1){
-					//printk("read initial\n");
+					printk("read initial\n");
 					gs->phase_flag = 0;//phase_flag initialize, flag 0 is read phase
 					read_index = 0;
 					cur_sector = 0;
@@ -1074,7 +1086,7 @@ static int read_job(struct gc_set *gs){
 									cur_sector + (c_size * 8) <= vc->vm[gs->gp].end_sector){
 								read_index++;
 								c_size++;
-								//printk("in loop c_size %u, read_index %llu, cur_sector %llu, -1's index %llu, index %llu\n", c_size, read_index, cur_sector, vc->fs->reverse_table[gs->gp][read_index-1].index, vc->fs->reverse_table[gs->gp][read_index].index);
+								printk("in loop c_size %u, read_index %llu, cur_sector %llu, -1's index %llu, index %llu\n", c_size, read_index, cur_sector, vc->fs->reverse_table[gs->gp][read_index-1].index, vc->fs->reverse_table[gs->gp][read_index].index);
 								if(KIZIL_POLICY 
 										&& ((vc->fs->reverse_table[gs->gp][read_index-1].index != -1 &&  vc->fs->reverse_table[gs->gp][read_index].index != -1) 
 											&& (vc->fs->reverse_table[gs->gp][read_index].dirty == 0 && vc->fs->table[vc->fs->reverse_table[gs->gp][read_index-1].index]->num_moved != vc->fs->table[vc->fs->reverse_table[gs->gp][read_index].index]->num_moved))
@@ -1094,7 +1106,7 @@ static int read_job(struct gc_set *gs){
 							/*if(c_size != 127) vc->read_index = read_index + 1;
 							else vc->read_index = read_index;
 							vc->cur_sector = cur_sector + ((c_size!=127?(c_size+1):c_size) * 8);*/
-							//printk("before c_size %u, read_index %llu, cur_sector %llu, -1's index %llu, index %llu\n", c_size, read_index, cur_sector, vc->fs->reverse_table[gs->gp][read_index-1].index, vc->fs->reverse_table[gs->gp][read_index].index);
+							printk("before c_size %u, read_index %llu, cur_sector %llu, -1's index %llu, index %llu\n", c_size, read_index, cur_sector, vc->fs->reverse_table[gs->gp][read_index-1].index, vc->fs->reverse_table[gs->gp][read_index].index);
 							if((c_size == 127 ||
 										((vc->fs->reverse_table[gs->gp][read_index-1].index != -1 &&  vc->fs->reverse_table[gs->gp][read_index].index != -1) 
 											&& vc->fs->table[vc->fs->reverse_table[gs->gp][read_index-1].index]->num_moved != vc->fs->table[vc->fs->reverse_table[gs->gp][read_index].index]->num_moved))){
@@ -1136,7 +1148,7 @@ static int read_job(struct gc_set *gs){
 							if(flag == 1) vc->gp_list[gs->bs->target_wp] = Writed_Weight;
 							else if(flag == 2) gs->bs->target_wp = written_tp;
 							else gs->bs->target_wp = gs->tp;
-							//printk("flag %u, target wp is %u\n", flag, gs->bs->target_wp);
+							printk("flag %u, target wp is %u\n", flag, gs->bs->target_wp);
 						}
 
 						gs->bs->index = read_index - c_size;
@@ -1184,13 +1196,17 @@ static int read_job(struct gc_set *gs){
 				}*/
 				//if(gs->set_num == 0) mutex_lock(gs->gc_lock);
 				if(gs->set_num == 0 && weathering_check(vc) == 1){
+				//if(false){
 					vc->gc_flag |= 1;
 					//mutex_unlock(gs->gc_lock);
 					continue;
 				}
 				//if(gs->set_num == 0) mutex_unlock(gs->gc_lock);
-
-				ssleep(1);
+				if(gs->set_num == 0) printk("before sleep\n");
+				//ssleep(10);
+				msleep(1000);
+				//msleep(1);
+				if(gs->set_num == 0) printk("after sleep\n");
 			}
 		}
 		else{//mig flag is 0, 0 is wait for filling SSD
@@ -1199,14 +1215,15 @@ static int read_job(struct gc_set *gs){
 				unsigned long long percent_of_dirtied;
 				unsigned int i = 0;
 				
+				printk("valid ratio cal\n");
 				for(i=0; i<vc->vms; i++){
 					percent_of_dirtied = (vc->vm[i].num_dirty - vc->d_num[i]) * 100;
 					do_div(percent_of_dirtied, vc->vm[i].num_dirty);
-					printk("%u's(%u) valid ratio is %llu(%llu)\t", i, vc->gp_list[i], percent_of_dirtied, vc->d_num[i]);
+					printk("%u's(%u) valid ratio is %llu(%llu) ", i, vc->gp_list[i], percent_of_dirtied, vc->d_num[i]);
 				}
 				printk("\n");
 			}
-			ssleep(1);
+			ssleep(2);
 		}
 	}
 	return 0;
@@ -1261,10 +1278,10 @@ static inline struct flag_nodes* vm_lfs_map_sector(struct vm_c *vc, struct bio* 
 	struct flag_set *fs = vc->fs;
 	unsigned long long index = bio->bi_iter.bi_sector;
 	unsigned int remainder = 0;
-	unsigned long bi_rw = bio_rw(bio);
+	unsigned long bi_rw = bio_op(bio);
 	remainder = do_div(index, 8);
 
-	if(bi_rw == WRITE){
+	if(bi_rw == REQ_OP_WRITE){
 		unsigned long long dirtied_sector = fs->table[index]->msector;
 		unsigned int i;
 		unsigned int sectors = bio_sectors(bio);
@@ -1444,14 +1461,14 @@ static int vm_map(struct dm_target *ti, struct bio *bio){
 	struct vm_c *vc =  ti->private;
 	unsigned target_bio_nr;
 
-	if(bio->bi_rw & REQ_FLUSH){
-		printk("flush\n");
+	if(bio->bi_opf & REQ_PREFLUSH){
+		//printk("flush\n");
 		target_bio_nr = dm_bio_get_target_bio_nr(bio);
 		BUG_ON(target_bio_nr >= vc->vms);
 		bio->bi_bdev = vc->vm[target_bio_nr].dev->bdev;
 		return DM_MAPIO_REMAPPED;
 	}
-	if(unlikely(bio->bi_rw & REQ_DISCARD)){
+	if(unlikely(bio_op(bio) == REQ_OP_DISCARD)){
 		unsigned long long index = bio->bi_iter.bi_sector;
 		unsigned int i=0;
 		unsigned int sectors = bio_sectors(bio);
@@ -1487,9 +1504,6 @@ static int vm_map(struct dm_target *ti, struct bio *bio){
 							d_wp_save = dirtied_wp;
 							//vc->gp_list[dirtied_wp] = GC_Weight;
 						}
-						/*blkdev_issue_discard(vc->vm[dirtied_wp].dev->bdev, vc->vm[dirtied_wp].physical_start,
-						  vc->vm[dirtied_wp].end_sector - 1 - vc->vm[dirtied_wp].physical_start, GFP_NOFS, 0);
-						  vc->gp_list[dirtied_wp] = Clean_Weight;*/
 					}
 					vc->fs->table[index]->msector = -1; vc->fs->table[index]->wp = -1;
 					vc->fs->reverse_table[dirtied_wp][dirtied_sector].index = -1;
@@ -1506,14 +1520,11 @@ static int vm_map(struct dm_target *ti, struct bio *bio){
 		vc->mig_flag = mf_buffer;
 		return DM_MAPIO_SUBMITTED;
 	}
-	else if(unlikely(bio->bi_rw & REQ_WRITE_SAME)){
+	else if(unlikely(bio_op(bio) == REQ_OP_WRITE_SAME)){
 		printk("write same\n");
 		target_bio_nr = dm_bio_get_target_bio_nr(bio);
 		BUG_ON(target_bio_nr >= vc->vms);
 		return vm_map_range(vc, bio, target_bio_nr);
-	}
-	else {
-		//printk("bi_rw %lu\n", bio->bi_rw);
 	}
 
 	vm_lfs_map_bio(ti, bio);
@@ -1571,13 +1582,10 @@ static int vm_end_io(struct dm_target *ti, struct bio *bio, int error)
 	char major_minor[16];
 	struct vm_c *vc = ti->private;
 
-	//printk("vm_end_io\n");
-
 	if (!error)
 		return 0; /* I/O complete */
-	//printk("What?\n");
 
-	if ((error == -EWOULDBLOCK) && (bio->bi_rw & REQ_RAHEAD))
+	if ((error == -EWOULDBLOCK) && (bio->bi_opf & REQ_RAHEAD))
 		return error;
 
 	if (error == -EOPNOTSUPP)
